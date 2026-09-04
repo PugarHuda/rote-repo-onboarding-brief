@@ -1,0 +1,44 @@
+schema_version = 1
+
+[[tools]]
+id = "python3"
+command = "python3"
+required = true
+
+[[tools.install]]
+manager = "brew"
+package = "python@3"
+
+[[tools.install]]
+manager = "apt"
+package = "python3"
+
+[[tools.install]]
+manager = "system"
+notes = "Any Python 3.11+ on PATH. Every step is a small stdlib-only script; tomllib is used to read pyproject.toml, which is why 3.11 is the floor."
+
+[[tools]]
+id = "sh"
+command = "sh"
+required = true
+
+[[tools.install]]
+manager = "system"
+notes = "POSIX shell, already present on macOS and Linux. Runs one resolver script that turns the `repo` parameter into a directory path."
+
+[[tools]]
+id = "git"
+command = "git"
+required = true
+
+[[tools.install]]
+manager = "brew"
+package = "git"
+
+[[tools.install]]
+manager = "apt"
+package = "git"
+
+[[tools.install]]
+manager = "system"
+notes = "Used only for a shallow clone when `repo` is a URL, and for read-only history queries on a local checkout."
