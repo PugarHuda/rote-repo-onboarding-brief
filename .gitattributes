@@ -1,0 +1,6 @@
+# These are executed by sh/python on POSIX hosts. CRLF breaks the shebang line,
+# so keep LF regardless of the platform they are checked out on.
+*.sh text eol=lf
+*.py text eol=lf
+*.ts text eol=lf
+*.toml text eol=lf
