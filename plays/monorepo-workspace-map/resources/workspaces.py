@@ -169,7 +169,7 @@ def range_satisfied(spec, version):
 
 def unlisted_packages(root, member_dirs, max_depth=3):
     """Directories holding a package.json (or Cargo.toml) that no workspace glob covers."""
-    listed = {d.resolve() for d in member_dirs}
+    listed = [d.resolve() for d in member_dirs]
     found = []
     for manifest in ("package.json", "Cargo.toml"):
         for f in root.rglob(manifest):
@@ -177,8 +177,12 @@ def unlisted_packages(root, member_dirs, max_depth=3):
             rel = d.relative_to(root)
             if d == root or any(part in IGNORE for part in rel.parts) or len(rel.parts) > max_depth:
                 continue
-            if d.resolve() not in listed:
-                found.append(rel.as_posix())
+            rd = d.resolve()
+            # A manifest inside a member is that member's sub-entry (vue ships
+            # packages/vue/compiler-sfc/package.json), not a forgotten package.
+            if any(rd == m or m in rd.parents for m in listed):
+                continue
+            found.append(rel.as_posix())
     return sorted(set(found))
 
 
@@ -254,32 +258,51 @@ def main():
     for dep, byPkg in external.items():
         distinct = {v for v in byPkg.values() if v}
         if len(distinct) > 1:
-            skew.append({"dependency": dep, "versions": byPkg})
-    skew.sort(key=lambda s: -len(s["versions"]))
+            # One dependency used by 140 packages is 140 lines of JSON; keep the
+            # distinct pins and a sample of who holds each, under rote's 64KB cap.
+            sample = dict(sorted(byPkg.items())[:12])
+            skew.append({"dependency": dep, "versions": sample, "package_count": len(byPkg),
+                         "distinct_versions": sorted(distinct)[:10]})
+    skew.sort(key=lambda s: -s["package_count"])
 
     depended_on = {b for _, b in edges}
     # rote keeps 64KB of a step's stdout; a truncated JSON reads as "no map".
     # Cap the long lists and report how much was left out.
     members_sorted = sorted(members, key=lambda m: m["path"])
     edges_sorted = sorted(edges)
-    MEMBER_CAP, EDGE_CAP = 250, 400
-    print(json.dumps({
-        "is_monorepo": True,
-        "root": str(root),
-        "workspace_kind": kind,
-        "member_count": len(members),
-        "members": [{k: v for k, v in m.items() if k != "deps"} for m in members_sorted[:MEMBER_CAP]],
-        "members_omitted": max(0, len(members) - MEMBER_CAP),
-        "edge_count": len(edges),
-        "internal_edges": edges_sorted[:EDGE_CAP],
-        "edges_omitted": max(0, len(edges) - EDGE_CAP),
-        "leaf_packages": sorted(n for n in names if n not in depended_on),
-        "cycles": find_cycles(edges, sorted(names))[:50],
-        "version_skew": skew[:25],
-        "internal_version_mismatch": mismatches[:50],
-        "unlisted_packages": unlisted_packages(root, dirs)[:50],
-        "skipped": skipped[:50],
-    }, indent=2))
+    leaves = sorted(n for n in names if n not in depended_on)
+    # A 300-package ring produces cycles 300 names long; keep each cycle readable.
+    cycles = [c if len(c) <= 40 else c[:40] + [f"… +{len(c) - 40} more"]
+              for c in find_cycles(edges, sorted(names))[:20]]
+    unlisted = unlisted_packages(root, dirs)[:50]
+    member_cap, edge_cap = 250, 400
+    STDOUT_BUDGET = 60_000  # rote keeps 65536 bytes; leave headroom for the runner
+    while True:
+        payload = {
+            "is_monorepo": True,
+            "root": str(root),
+            "workspace_kind": kind,
+            "member_count": len(members),
+            "members": [{k: v for k, v in m.items() if k != "deps"} for m in members_sorted[:member_cap]],
+            "members_omitted": max(0, len(members) - member_cap),
+            "edge_count": len(edges),
+            "internal_edges": edges_sorted[:edge_cap],
+            "edges_omitted": max(0, len(edges) - edge_cap),
+            "leaf_packages": leaves[:200],
+            "cycles": cycles,
+            "version_skew": skew[:25],
+            "internal_version_mismatch": mismatches[:50],
+            "unlisted_packages": unlisted,
+            "skipped": skipped[:50],
+        }
+        text = json.dumps(payload, separators=(",", ":"))
+        # babel: 162 members and 761 edges came to 76 KB pretty-printed. Halve the
+        # long lists until the whole thing fits; the omitted counts stay honest.
+        if len(text.encode()) <= STDOUT_BUDGET or (member_cap <= 10 and edge_cap <= 10 and len(cycles) <= 2):
+            break
+        member_cap, edge_cap = max(10, member_cap // 2), max(10, edge_cap // 2)
+        cycles = cycles[:max(2, len(cycles) // 2)]
+    print(text)
     return 0
 
 

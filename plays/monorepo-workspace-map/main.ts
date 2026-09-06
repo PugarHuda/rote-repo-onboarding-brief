@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.2.0
+ *   version: 0.2.2
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
@@ -185,10 +185,13 @@ if (!data) {
     lines.push("  The same external dependency, pinned differently across packages:");
     lines.push("");
     for (const s of skew) {
-      lines.push(`  ${S(s["dependency"])}`);
+      const total = Number(s["package_count"] ?? 0);
+      const shown = Object.keys((s["versions"] as Dict) ?? {}).length;
+      lines.push(`  ${S(s["dependency"])}  (${total} packages, ${((s["distinct_versions"] as string[]) ?? []).join(" / ")})`);
       for (const [pkg, ver] of Object.entries((s["versions"] as Dict) ?? {})) {
         lines.push(`    ${String(ver).padEnd(18)}${pkg}`);
       }
+      if (total > shown) lines.push(`    … ${total - shown} more packages`);
     }
     lines.push("");
     lines.push("  `catalog:` and `workspace:` are indirections, not versions — a package");

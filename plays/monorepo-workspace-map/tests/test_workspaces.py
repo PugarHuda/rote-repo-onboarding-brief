@@ -98,10 +98,32 @@ def test_internal_version_mismatch_and_unlisted_packages():
         mk(r, "packages/ok", {"name": "@acme/ok", "version": "1.0.0",
                                "dependencies": {"@acme/core": "workspace:*"}})   # link, never a mismatch
         mk(r, "tools/forgotten", {"name": "@acme/forgotten", "version": "0.1.0"})  # not covered by any glob
+        mk(r, "packages/core/sub-entry", {"name": "@acme/core/sub"})  # nested in a member: not unlisted
         d = ws(r)
         assert d["internal_version_mismatch"] == [
             {"package": "@acme/app", "depends_on": "@acme/core", "wants": "^1.0.0", "workspace_has": "2.0.0"}], d
         assert d["unlisted_packages"] == ["tools/forgotten"], d
+
+
+def test_babel_sized_monorepo_stays_under_rotes_64kb_stdout_cap():
+    # Regression: babel/babel (162 members, 761 edges) came to 76 KB pretty-printed and
+    # rote's presentation read a truncated body as "could not be mapped".
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        (r / "package.json").write_text(json.dumps({"name": "root", "workspaces": ["packages/*"]}))
+        for i in range(300):
+            deps = {f"@big/pkg-{(i + k) % 300}": "workspace:*" for k in range(1, 6)}
+            deps["lodash"] = "^4.0.0" if i % 2 else "^4.17.21"
+            mk(r, f"packages/pkg-{i}", {"name": f"@big/pkg-{i}", "version": "1.0.0", "dependencies": deps})
+        p = subprocess.run([sys.executable, str(HERE / "workspaces.py"), str(r)],
+                           capture_output=True, text=True, timeout=120)
+        assert p.returncode == 0, p.stderr
+        assert len(p.stdout.encode()) <= 65536, len(p.stdout)
+        d = json.loads(p.stdout)
+        assert d["member_count"] == 300 and d["edge_count"] == 1500
+        assert len(d["members"]) + d["members_omitted"] == 300
+        assert len(d["internal_edges"]) + d["edges_omitted"] == 1500
+        assert d["version_skew"][0]["package_count"] == 300 and len(d["version_skew"][0]["versions"]) == 12
 
 
 if __name__ == "__main__":

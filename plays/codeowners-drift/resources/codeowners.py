@@ -327,7 +327,8 @@ def main():
         print(f"codeowners: not a directory: {root}", file=sys.stderr)
         sys.exit(1)
     do_verify = any(a.split("=")[-1].strip().lower() in ("true", "1", "yes") for a in args[1:])
-    json.dump(audit(root, do_verify), sys.stdout, indent=2)
+    # compact: rote keeps 65536 bytes of stdout, and indent=2 roughly doubles the size
+    json.dump(audit(root, do_verify), sys.stdout, separators=(",", ":"))
     print()
 
 

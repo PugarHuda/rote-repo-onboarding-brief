@@ -303,8 +303,13 @@ def classify(cmd, scripts, targets, recipes, defs=None):
         target = parts[1]
         if root and (root / target).exists():
             return ("defined", f"path {target} exists", have_tool)
-        if root and "/" in target or target.endswith(".py"):
+        if "/" in target:
+            # A path into the repository that is not there is stale documentation.
             return ("undefined", f"path {target!r} does not exist", have_tool)
+        if target.endswith(".py"):
+            # `python hello.py` in a README is usually the file the reader is about
+            # to write (click, flask, typer all do this), not a file the repo ships.
+            return ("unknown", f"{target} is not in the repository; read as an example the reader creates", have_tool)
 
     # Taskfile
     if tool == "task" and len(parts) >= 2 and not parts[1].startswith("-"):

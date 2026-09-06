@@ -211,7 +211,8 @@ def main():
             scope = v
         elif v.strip().isdigit():
             max_packages = max(1, int(v))
-    json.dump(audit(root, scope, max_packages), sys.stdout, indent=2)
+    # compact: rote keeps 65536 bytes of stdout, and indent=2 roughly doubles the size
+    json.dump(audit(root, scope, max_packages), sys.stdout, separators=(",", ":"))
     print()
 
 

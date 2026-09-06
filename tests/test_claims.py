@@ -97,6 +97,7 @@ def test_cargo_go_python_docker_and_task_claims():
             "nox -s tests", "nox -s bench", "python -m pkg", "python -m nothere",
             "docker compose up web", "docker compose up cache", "docker build -t x .",
             "task lint", "task deploy", "npx vitest", "npx some-random-cli",
+            "python hello.py --count=3", "python scripts/gone.py", "pytest tests/nope",
         ]) + "\n```\n")
         s = by_cmd(claims(r))
         assert s["cargo run --bin tool"] == "defined" or s["cargo run --bin tool"] == "tool_missing", s
@@ -110,6 +111,9 @@ def test_cargo_go_python_docker_and_task_claims():
         assert s["docker build -t x ."] in ("defined", "tool_missing")
         assert s["task lint"] in ("defined", "tool_missing") and s["task deploy"] == "undefined"
         assert s["npx vitest"] in ("defined", "tool_missing") and s["npx some-random-cli"] == "unknown"
+        # a bare example file the reader writes is not doc rot; a missing repo path is
+        assert s["python hello.py --count=3"] == "unknown"
+        assert s["python scripts/gone.py"] == "undefined" and s["pytest tests/nope"] == "undefined"
 
 
 if __name__ == "__main__":
