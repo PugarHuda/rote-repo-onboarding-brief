@@ -125,3 +125,28 @@ API, so both are listed under **NOT CHECKED** rather than assumed fine.
 Verified on `hashicorp/terraform` (3 rules pointing at provisioners that no longer exist) and
 `home-assistant/core` (2,183 rules over 27,740 files, 90.1% covered, 2 stale). Source under
 `plays/codeowners-drift/`; self-check in `plays/codeowners-drift/tests/`.
+
+## dependency-trust-diff
+
+```sh
+rote play run pugarhuda/dependency-trust-diff repo=https://github.com/axios/axios
+```
+
+`npm outdated` tells you a newer version exists. It does not tell you that the newer version was
+**published by a different account**, or under a **different license**. A package name survives a
+maintainer handover, a sold project, and a takeover unchanged, so the name is not the trust anchor.
+
+For every package the lockfile pins (direct dependencies by default, `scope=all` for the tree), it
+asks the public npm registry for the locked version and for `latest`, and reports each as `CURRENT`,
+`BEHIND`, `FLAGGED` (`PUBLISHER_CHANGED`, `LICENSE_CHANGED`, `MAINTAINERS_REPLACED`,
+`LATEST_DEPRECATED`) or `UNCHECKED` when the registry did not answer. A fetch failure is never
+reported as "same".
+
+What it says it cannot know: a publisher change is the account that ran `npm publish`, so a
+handover to a CI token looks identical to a takeover. On `axios/axios` the first run flagged three
+packages, and two of them had moved to a "GitHub Actions" publishing account, which is exactly the
+case the output tells you to look at rather than assume. It reads registry metadata, never tarballs.
+pnpm, yarn and bun lockfiles are named as unsupported rather than silently skipped.
+
+Its only network access is anonymous GETs to `registry.npmjs.org`. Source under
+`plays/dependency-trust-diff/`; the self-check runs fully offline against fixtures.
