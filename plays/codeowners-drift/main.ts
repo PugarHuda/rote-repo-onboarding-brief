@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.3.1
+ *   version: 0.3.2
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
@@ -194,7 +194,16 @@ if (!data) {
     }
     lines.push("");
     lines.push("  The path moved or never existed. The forge accepts the rule and routes nothing.");
-    lines.push("  Run against a full local checkout (not a URL) to get the commit that removed each path.");
+    // Only worth saying when the history lookup actually came up empty: on a full
+    // checkout every commit is already printed above, and repeating the hint there
+    // reads as though the tool had not just answered the question.
+    const noHistory = stale.some((r) => {
+      const ls = (r["last_seen"] as Dict) ?? {};
+      return !ls["commit"] && !ls["never"];
+    });
+    if (noHistory) {
+      lines.push("  Run against a full local checkout (not a URL) to get the commit that removed each path.");
+    }
   } else {
     lines.push("  None. Every rule matches at least one tracked file.");
   }

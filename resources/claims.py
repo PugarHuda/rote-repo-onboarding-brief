@@ -18,7 +18,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-FENCE = re.compile(r"```([a-zA-Z0-9_+-]*)\n(.*?)```", re.DOTALL)
 SHELL_LANGS = {"", "sh", "bash", "zsh", "shell", "console", "terminal", "commandline", "cmd"}
 # Leading tools we recognise as "this is a command someone is meant to run".
 TOOLS = {
@@ -29,6 +28,29 @@ TOOLS = {
     "dotnet", "swift", "flutter", "dart", "ruby", "gem",
 }
 SCRIPT_RUNNERS = {"npm", "pnpm", "yarn", "bun"}
+
+
+def shell_blocks(text):
+    """Fenced blocks whose language reads as a shell, as (first_body_line, body_lines).
+
+    Walked line by line, not matched by regex: a closing fence must never be read
+    as the next opening one, or the prose between two real code blocks is parsed
+    as commands. MyST directive fences (```{eval-rst}) fall out of the same walk,
+    because their language is not a shell.
+    """
+    lines, out, i = text.splitlines(), [], 0
+    while i < len(lines):
+        if not lines[i].lstrip().startswith("```"):
+            i += 1
+            continue
+        lang = lines[i].lstrip()[3:].strip().lower()
+        j = i + 1
+        while j < len(lines) and not lines[j].lstrip().startswith("```"):
+            j += 1
+        if lang in SHELL_LANGS:
+            out.append((i + 2, lines[i + 1:j]))
+        i = j + 1
+    return out
 
 
 def strip_prompt(line):
@@ -68,12 +90,8 @@ def readme_commands(root):
         except Exception:
             continue
         rel = p.relative_to(root).as_posix()
-        for m in FENCE.finditer(text):
-            lang, body = m.group(1), m.group(2)
-            if lang.lower() not in SHELL_LANGS:
-                continue
-            first_line = text.count("\n", 0, m.start()) + 2  # line after the opening fence
-            for i, raw in enumerate(body.splitlines()):
+        for first_line, body in shell_blocks(text):
+            for i, raw in enumerate(body):
                 line = strip_prompt(raw)
                 if not line or line.startswith("#"):
                     continue

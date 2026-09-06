@@ -222,6 +222,26 @@ def test_ci_and_dockerfile_floors_join_the_contradiction_check():
         assert ("Dockerfile FROM says 18.x", "package.json engines.node says >=20") in conflicts, conflicts
 
 
+def test_myst_directive_fences_do_not_turn_prose_into_commands():
+    """Regression, found on pallets/click: MyST ```{eval-rst} fences left the old
+    regex pairing every closing fence with the next opening one, so the prose
+    between two real code blocks was scanned for commands and a sentence
+    starting with the word "make" was reported as a missing Makefile target.
+    The real command in the last block was missed at the same time."""
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        (r / "Makefile").write_text("build:\n\techo hi\n")
+        (r / "README.md").write_text(
+            "```{eval-rst}\n.. note:: hi\n```\n\n"
+            "```python\nprint(1)\n```\n\n"
+            "This limitation is unlikely to change because it would\n"
+            "make resource handling much more complicated.\n\n"
+            "```sh\nmake build\n```\n")
+        s = by_cmd(claims(r))
+        assert "make build" in s, s
+        assert not any(c.startswith("make resource") for c in s), s
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
