@@ -80,3 +80,48 @@ which is exactly what a Play whose value is honesty cannot afford to ship.
 ## Requirements
 
 Python 3.11+ (uses `tomllib` for `pyproject.toml`), `git`, and a POSIX shell.
+
+---
+
+# Also in this repository
+
+Two more Plays share the same resolver and the same rules: read-only, stdlib only, nothing the
+repository ships is ever executed, and every "could not determine" is said out loud.
+
+## monorepo-workspace-map
+
+```sh
+rote play run pugarhuda/monorepo-workspace-map repo=https://github.com/vuejs/core
+```
+
+Maps a monorepo's package boundaries: which workspace packages exist, which depend on which, which
+are leaves nobody imports, and which dependency **cycles** exist. Also reports **version skew**,
+the same external dependency pinned differently across packages, which installs cleanly and breaks
+once at runtime. Understands npm/yarn, pnpm, Cargo, `go.work`, uv, and lerna workspaces. A
+repository that is not a monorepo gets a stated answer and the list of definitions checked, never
+an empty map. Source under `plays/monorepo-workspace-map/`.
+
+## codeowners-drift
+
+```sh
+rote play run pugarhuda/codeowners-drift repo=https://github.com/hashicorp/terraform
+```
+
+Audits `CODEOWNERS` against the files the repository actually tracks. A CODEOWNERS file is written
+once and the tree moves out from under it; the forge never says a rule stopped matching. Three
+findings carry it:
+
+- **matches nothing** — the path moved or never existed; the rule routes no review
+- **shadowed** — a later rule wins for every file this one names, because the *last* match wins
+- **without an owner** — every tracked file no rule covers, grouped by directory, with a coverage
+  percentage
+
+It reads the one file GitHub uses when several are present (`.github/`, root, `docs/`, in that
+order) and says which. Matching follows GitHub's documented semantics, including that `docs/*`
+does not descend. Syntax the forge rejects (negation, malformed handles, GitLab section headers)
+is flagged. Whether a team exists and whether branch protection requires the review need the forge
+API, so both are listed under **NOT CHECKED** rather than assumed fine.
+
+Verified on `hashicorp/terraform` (3 rules pointing at provisioners that no longer exist) and
+`home-assistant/core` (2,183 rules over 27,740 files, 90.1% covered, 2 stale). Source under
+`plays/codeowners-drift/`; self-check in `plays/codeowners-drift/tests/`.
