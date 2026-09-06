@@ -161,6 +161,42 @@ def check(name, locked_version):
     return row
 
 
+OSV = "https://api.osv.dev/v1/querybatch"
+OSV_FIXTURE = os.environ.get("TRUSTDIFF_OSV_FIXTURE")
+
+
+def osv_lookup(pairs):
+    """Known vulnerabilities for the exact versions you have, from OSV's public batch API.
+
+    Returns ({name: [ids]}, note). A failed call returns ({}, reason) and every
+    package is reported as not checked for vulnerabilities, never as clean.
+    """
+    if not pairs:
+        return {}, None
+    if OSV_FIXTURE:
+        try:
+            fx = json.loads(Path(OSV_FIXTURE).read_text())
+            return {n: fx.get(f"{n}@{v}", []) for n, v in pairs if fx.get(f"{n}@{v}")}, None
+        except Exception as e:
+            return {}, f"fixture unreadable: {e}"
+    found = {}
+    for start in range(0, len(pairs), 1000):  # OSV caps a batch at 1000 queries
+        chunk = pairs[start:start + 1000]
+        body = json.dumps({"queries": [{"package": {"name": n, "ecosystem": "npm"}, "version": v} for n, v in chunk]}).encode()
+        req = urllib.request.Request(OSV, data=body, headers={
+            "Content-Type": "application/json", "User-Agent": "dependency-trust-diff/0.3 (rote play)"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                results = json.loads(r.read().decode("utf-8", "replace")).get("results", [])
+        except Exception as e:
+            return {}, f"OSV did not answer ({type(e).__name__}); vulnerabilities were NOT checked"
+        for (n, _), res in zip(chunk, results):
+            ids = [v.get("id") for v in (res or {}).get("vulns", []) if v.get("id")]
+            if ids:
+                found[n] = ids
+    return found, None
+
+
 def audit(root, scope="direct", max_packages=200):
     root = Path(root)
     lockfile, pinned, direct, reason = locked_packages(root)
@@ -171,6 +207,15 @@ def audit(root, scope="direct", max_packages=200):
     names = names[:max_packages]
     with ThreadPoolExecutor(max_workers=8) as ex:
         rows = list(ex.map(lambda n: check(n, pinned[n]), names))
+    vulns, osv_note = osv_lookup([(n, pinned[n]) for n in names])
+    for r in rows:
+        ids = vulns.get(r["name"])
+        if ids:
+            # A known advisory against the exact version you have outranks every
+            # other finding here, so it is a finding even on a CURRENT package.
+            r["vulns"] = ids[:5]
+            r["findings"].insert(0, "KNOWN_VULNERABILITY")
+            r["status"] = "FLAGGED"
     by = {}
     for r in rows:
         by.setdefault(r["status"], []).append(r)
@@ -179,6 +224,7 @@ def audit(root, scope="direct", max_packages=200):
         "pinned_total": len(pinned), "direct_total": len(direct),
         "checked": len(rows), "skipped_over_max": skipped,
         "source": "fixtures" if FIXTURE_DIR else REGISTRY,
+        "osv": {"checked": osv_note is None, "vulnerable_packages": len(vulns), "note": osv_note},
         "counts": {k: len(v) for k, v in sorted(by.items())},
         "flagged": by.get("FLAGGED", []),
         "unchecked": by.get("UNCHECKED", []),

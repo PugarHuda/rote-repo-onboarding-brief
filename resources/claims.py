@@ -11,6 +11,7 @@ Output: JSON list of command claims, each with a status:
 Read-only. Executes nothing from the repo; only probes tool presence with `command -v`.
 """
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -203,6 +204,139 @@ def _yaml_top_keys(text, section):
     return keys
 
 
+# ---------------------------------------------------------------------------
+# Toolchain floors: what the repo declares vs. what this machine actually has.
+# Runs `--version` on YOUR node/python/go/cargo — host tools, never repo code.
+# ---------------------------------------------------------------------------
+VERSION_FIXTURE = os.environ.get("CLAIMS_TOOL_VERSIONS")  # JSON {tool: "x.y.z"} for offline tests
+
+
+def declared_floors(root):
+    """[(tool, spec, source)] for every runtime floor the repository declares."""
+    out = []
+    try:
+        pkg = json.loads(read_text(root / "package.json"))
+        node = (pkg.get("engines") or {}).get("node")
+        if node:
+            out.append(("node", str(node), "package.json engines.node"))
+        pm = pkg.get("packageManager")
+        if pm and "@" in pm:
+            tool, ver = pm.split("@", 1)
+            out.append((tool, "=" + ver.split("+")[0], "package.json packageManager"))
+    except Exception:
+        pass
+    for f in (".nvmrc", ".node-version"):
+        if (root / f).is_file():
+            v = read_text(root / f).strip().lstrip("v")
+            if v and v[0].isdigit():
+                out.append(("node", v, f))
+    py = _toml(root / "pyproject.toml")
+    rp = ((py or {}).get("project") or {}).get("requires-python")
+    if rp:
+        out.append(("python3", str(rp), "pyproject requires-python"))
+    if (root / ".python-version").is_file():
+        v = read_text(root / ".python-version").strip().split()[0] if read_text(root / ".python-version").strip() else ""
+        if v and v[0].isdigit():
+            out.append(("python3", v, ".python-version"))
+    gm = read_text(root / "go.mod") if (root / "go.mod").is_file() else ""
+    m = re.search(r"^go\s+(\d+(?:\.\d+){0,2})", gm, re.M)
+    if m:
+        out.append(("go", ">=" + m.group(1), "go.mod go directive"))
+    for f in ("rust-toolchain.toml", "rust-toolchain"):
+        if (root / f).is_file():
+            txt = read_text(root / f)
+            m = re.search(r'channel\s*=\s*"([^"]+)"', txt) or re.match(r"^\s*([0-9][^\s]*)\s*$", txt)
+            if m and m.group(1)[0].isdigit():
+                out.append(("cargo", m.group(1), f))
+            break
+    if (root / ".tool-versions").is_file():
+        for line in read_text(root / ".tool-versions").splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[0] in ("nodejs", "python", "golang", "rust"):
+                tool = {"nodejs": "node", "python": "python3", "golang": "go", "rust": "cargo"}[parts[0]]
+                out.append((tool, parts[1], ".tool-versions"))
+    return out
+
+
+def installed_version(tool):
+    """x.y.z of the host tool, or None. Reads only the tool's own --version output."""
+    if VERSION_FIXTURE:
+        try:
+            return json.loads(Path(VERSION_FIXTURE).read_text()).get(tool)
+        except Exception:
+            return None
+    exe = shutil.which(tool)
+    if not exe:
+        return None
+    argv = [exe, "version"] if tool == "go" else [exe, "--version"]
+    try:
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=8)
+        m = re.search(r"(\d+\.\d+(?:\.\d+)?)", (p.stdout or "") + (p.stderr or ""))
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+
+def _vt(v):
+    m = re.match(r"^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?", str(v))
+    return (int(m.group(1)), int(m.group(2) or 0), int(m.group(3) or 0)) if m else None
+
+
+def satisfies(spec, version):
+    """Does an installed version satisfy a declared range? True/False, or None if unparsed.
+    Handles `>=20`, `>=18 <21`, `^18.0.0`, `~3.11`, `20.x`, `1.22`, `a || b`, `stable`."""
+    have = _vt(version)
+    if have is None:
+        return None
+    spec = str(spec).strip()
+    if spec in ("*", "stable", "latest", "lts/*", "lts"):
+        return True
+    for clause in spec.split("||"):
+        parts = re.findall(r"(>=|<=|>|<|\^|~|=)?\s*v?(\d+(?:\.[0-9x*]+){0,2})", clause)
+        if not parts:
+            return None
+        ok = True
+        for op, num in parts:
+            want = _vt(num.replace("x", "0").replace("*", "0"))
+            segs = num.split(".")
+            wild = any(s in ("x", "*") for s in segs)
+            # `20.x` compares the one numeric component in front of the wildcard
+            depth = next((i for i, s in enumerate(segs) if s in ("x", "*")), len(segs))
+            if op == ">=":
+                ok &= have >= want
+            elif op == ">":
+                ok &= have > want
+            elif op == "<=":
+                ok &= have <= want
+            elif op == "<":
+                ok &= have < want
+            elif op == "~":
+                ok &= have[:2] == want[:2] and have >= want
+            elif op == "^":
+                ok &= (have[0] == want[0] and have >= want) if want[0] else (have[:2] == want[:2] and have >= want)
+            else:  # bare or `=`: minimum for go-style `1.22`, exact-prefix for `20.x` / `20.11.0`
+                if wild or depth < 3 and not op:
+                    ok &= have[:depth] == want[:depth] if wild else have >= want
+                else:
+                    ok &= have == want
+        if ok:
+            return True
+    return False
+
+
+def toolchain(root):
+    rows = []
+    for tool, spec, source in declared_floors(root):
+        have = installed_version(tool)
+        if have is None:
+            status = "missing"
+        else:
+            ok = satisfies(spec, have)
+            status = "ok" if ok else ("unparsed" if ok is None else "below_floor")
+        rows.append({"tool": tool, "declared": spec, "source": source, "installed": have, "status": status})
+    return rows
+
+
 def classify(cmd, scripts, targets, recipes, defs=None):
     parts = cmd.split()
     tool = parts[0]
@@ -370,6 +504,7 @@ def main():
         "nox_sessions": sorted(defs["nox_sessions"]),
         "task_names": sorted(defs["task_names"]),
         "compose_services": sorted(defs["compose_services"]),
+        "toolchain": toolchain(root),
         "claim_count": len(claims),
         "summary": summary,
         "claims": claims,

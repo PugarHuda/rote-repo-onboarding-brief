@@ -11,7 +11,7 @@ HERE = Path(__file__).parent.parent / "resources"
 
 
 def run(root, fixtures, *extra):
-    env = dict(os.environ, TRUSTDIFF_FIXTURE_DIR=str(fixtures))
+    env = dict(os.environ, TRUSTDIFF_FIXTURE_DIR=str(fixtures), TRUSTDIFF_OSV_FIXTURE=str(Path(fixtures) / "osv.json"))
     p = subprocess.run([sys.executable, str(HERE / "trustdiff.py"), str(root), *extra],
                        capture_output=True, text=True, timeout=60, env=env)
     assert p.returncode == 0, p.stderr
@@ -72,10 +72,15 @@ def test_v3_lockfile_direct_scope_and_findings():
         fixture(fx, "old", "1.0.0", publisher="x", license="MIT", maintainers=["x"])
         fixture(fx, "old", "latest", version="1.1.0", publisher="x", license="MIT", maintainers=["x"], deprecated=True)
 
+        # OSV: the CURRENT package `steady` carries an advisory at exactly 1.0.0
+        (fx / "osv.json").write_text(json.dumps({"steady@1.0.0": ["GHSA-xxxx-yyyy-zzzz", "CVE-2026-0001"]}))
         d = run(r, fx)
         assert d["ok"] and d["lockfile"] == "package-lock.json"
+        assert d["osv"] == {"checked": True, "vulnerable_packages": 1, "note": None}
+        steady = next(f for f in d["flagged"] if f["name"] == "steady")
+        assert steady["findings"][0] == "KNOWN_VULNERABILITY" and steady["vulns"] == ["GHSA-xxxx-yyyy-zzzz", "CVE-2026-0001"]
         assert d["pinned_total"] == 8 and d["direct_total"] == 6 and d["checked"] == 6
-        assert d["counts"] == {"BEHIND": 1, "CURRENT": 1, "FLAGGED": 3, "UNCHECKED": 1}
+        assert d["counts"] == {"BEHIND": 1, "FLAGGED": 4, "UNCHECKED": 1}
         flagged = {f["name"]: f["findings"] for f in d["flagged"]}
         assert flagged["left-pad"] == ["PUBLISHER_CHANGED", "LICENSE_CHANGED", "MAINTAINERS_REPLACED"]
         assert flagged["old"] == ["LATEST_DEPRECATED"]
@@ -84,7 +89,7 @@ def test_v3_lockfile_direct_scope_and_findings():
         assert worm["install_scripts_added"] == ["postinstall"]
         assert d["behind"] == [{"name": "@scope/pkg", "locked": "2.0.0", "latest": "2.1.0"}]
         assert d["unchecked"][0]["name"] == "ghost" and "latest" in d["unchecked"][0]["why"]
-        assert d["current"] == ["steady"]
+        assert d["current"] == []  # steady moved to FLAGGED by the advisory
 
         # scope=all reaches the transitive package too, and max_packages truncates honestly
         d2 = run(r, fx, "scope=all", "max_packages=3")

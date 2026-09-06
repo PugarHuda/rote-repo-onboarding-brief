@@ -116,6 +116,41 @@ def test_cargo_go_python_docker_and_task_claims():
         assert s["python scripts/gone.py"] == "undefined" and s["pytest tests/nope"] == "undefined"
 
 
+def test_toolchain_floors_against_this_machine_offline():
+    import os
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        (r / "package.json").write_text(json.dumps({"engines": {"node": ">=20"}, "packageManager": "pnpm@9.1.0"}))
+        (r / ".nvmrc").write_text("22\n")
+        (r / "pyproject.toml").write_text('[project]\nname="p"\nrequires-python = ">=3.11"\n')
+        (r / "go.mod").write_text("module x\n\ngo 1.22\n")
+        (r / "rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.75"\n')
+        (r / "README.md").write_text("")
+        fx = r / "versions.json"
+        fx.write_text(json.dumps({"node": "18.19.0", "python3": "3.12.1", "go": "1.21.5", "cargo": "1.80.0"}))
+        env = dict(os.environ, CLAIMS_TOOL_VERSIONS=str(fx))
+        p = subprocess.run([sys.executable, str(HERE / "claims.py"), str(r)], capture_output=True, text=True, timeout=60, env=env)
+        assert p.returncode == 0, p.stderr
+        rows = {(x["tool"], x["source"]): x["status"] for x in json.loads(p.stdout)["toolchain"]}
+        assert rows[("node", "package.json engines.node")] == "below_floor"   # 18 < 20
+        assert rows[("node", ".nvmrc")] == "below_floor"                       # 18 != 22.x
+        assert rows[("pnpm", "package.json packageManager")] == "missing"      # not in fixture
+        assert rows[("python3", "pyproject requires-python")] == "ok"
+        assert rows[("go", "go.mod go directive")] == "below_floor"            # 1.21 < 1.22
+        assert rows[("cargo", "rust-toolchain.toml")] == "ok"                  # 1.80 >= 1.75
+
+
+def test_satisfies_ranges():
+    sys.path.insert(0, str(HERE))
+    from claims import satisfies
+    assert satisfies(">=18 <21", "20.5.0") is True and satisfies(">=18 <21", "21.0.0") is False
+    assert satisfies("^18.0.0 || ^20.0.0", "20.11.0") is True and satisfies("^18.0.0 || ^20.0.0", "19.0.0") is False
+    assert satisfies("20.x", "20.3.1") is True and satisfies("20.x", "21.0.0") is False
+    assert satisfies("~3.11", "3.11.9") is True and satisfies("~3.11", "3.12.0") is False
+    assert satisfies("1.22", "1.22.0") is True and satisfies("1.22", "1.21.9") is False
+    assert satisfies("lts/*", "22.0.0") is True and satisfies("weird", "1.0.0") is None
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

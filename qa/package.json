@@ -1,0 +1,8 @@
+{
+  "name": "play-pages-qa",
+  "private": true,
+  "type": "module",
+  "description": "Real-browser check that the four published Play pages render the version this repository declares.",
+  "scripts": { "test": "node play-pages.spec.mjs" },
+  "devDependencies": { "playwright": "^1.50.0" }
+}

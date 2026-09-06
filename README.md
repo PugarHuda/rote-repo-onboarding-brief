@@ -82,9 +82,24 @@ this, both of which made the brief state something false:
 Both were the same class of error — the tool confidently asserting something it had no basis for —
 which is exactly what a Play whose value is honesty cannot afford to ship.
 
+## Your machine vs the floors the project declares
+
+Since 0.3.0 the brief compares what the repository demands with what you actually have: `engines`,
+`.nvmrc`/`.node-version`, `packageManager`, `requires-python`, `.python-version`, the `go.mod` go
+directive, `rust-toolchain` and `.tool-versions`, against the `--version` of your own `node`,
+`python3`, `go` and `cargo`. Those are host tools, never the project's code. A Node two majors too
+old is reported before any command below it is trusted.
+
 ## Requirements
 
 Python 3.11+ (uses `tomllib` for `pyproject.toml`), `git`, and a POSIX shell.
+
+## Browser QA of the published pages
+
+`qa/play-pages.spec.mjs` opens the four public Play pages in real Chromium (Playwright) and asserts
+HTTP 200, the version this repository declares, the Public badge, the declared tools, the inputs a
+stranger is asked for, and the read-only wording. `cd qa && npm install && npx playwright install
+chromium && npm test`.
 
 ---
 
