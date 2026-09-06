@@ -106,6 +106,116 @@ def test_renovate_ignore_paths_exclude_directories():
         assert "/examples/demo" in unc and "ignorePaths" in unc["/examples/demo"], unc
 
 
+
+def test_wildcard_ignore_mutes_an_entry_but_a_narrowed_one_does_not():
+    """`dependency-name: "*"` with nothing narrowing it drops every version update.
+
+    The same wildcard narrowed by update-types is the ordinary "no majors" rule and
+    must stay in COVERED, or the finding is noise nobody reads twice.
+    """
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        touch(r, "package.json", "api/requirements.txt")
+        (r / ".github").mkdir(exist_ok=True)
+        (r / ".github" / "dependabot.yml").write_text("""version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+  - package-ecosystem: pip
+    directory: "/api"
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "boto3"
+""")
+        d = run(r)
+        muted = {m["directory"]: m["why"] for m in d["muted"]}
+        assert list(muted) == ["/"], d["muted"]
+        assert "every version update is dropped" in muted["/"], muted
+        assert [c["directory"] for c in d["covered"]] == ["/api"], d["covered"]
+
+
+def test_registry_named_but_never_declared_is_a_config_problem():
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        touch(r, "package.json")
+        (r / ".github").mkdir(exist_ok=True)
+        (r / ".github" / "dependabot.yml").write_text("""version: 2
+registries:
+  npm-internal:
+    type: npm-registry
+    url: https://npm.pkg.github.com
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    registries:
+      - npm-internal
+      - npm-typo
+    schedule:
+      interval: weekly
+""")
+        d = run(r)
+        why = " ".join(p["why"] for p in d["problems"])
+        assert "npm-typo" in why and "npm-internal" not in why, d["problems"]
+
+
+def test_double_star_directories_and_two_more_ecosystems():
+    """`/packages/**` is the glob monorepos write; .gitmodules and compose files are
+    ecosystems Dependabot supports and almost nobody adds an entry for."""
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        touch(r, "packages/a/package.json", "packages/deep/nested/package.json",
+              ".gitmodules", "docker-compose.yml")
+        (r / ".github").mkdir(exist_ok=True)
+        (r / ".github" / "dependabot.yml").write_text("""version: 2
+updates:
+  - package-ecosystem: npm
+    directories:
+      - "/packages/**"
+    schedule:
+      interval: weekly
+""")
+        d = run(r)
+        cov = sorted(c["directory"] for c in d["covered"])
+        assert cov == ["/packages/a", "/packages/deep/nested"], cov
+        unc = sorted(u["ecosystem"] for u in d["uncovered"])
+        assert unc == ["docker-compose", "gitsubmodule"], unc
+
+
+
+def test_real_json5_and_urls_survive_the_comment_stripper():
+    """Regression, found on babel, vuejs/core and home-assistant: all three renovate
+    configs read as unparseable, so the play reported a fully covered repository as
+    0% covered. Two causes — a regex comment stripper ate the // in an https:// URL,
+    and .json5 really is json5: bare keys and single-quoted strings."""
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        touch(r, "package.json", "packages/ui/package.json", "tests/e2e/package.json")
+        (r / ".github").mkdir(exist_ok=True)
+        (r / ".github" / "renovate.json5").write_text("""{
+  // the URL below is the whole bug: its // is not a comment
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: ['config:recommended'],
+  ignorePaths: ['**/tests/**'],
+  packageRules: [
+    { matchDepTypes: ['peerDependencies'], enabled: false },
+  ],
+}
+""")
+        d = run(r)
+        assert d["renovate"]["readable"] is True, d["renovate"]
+        assert d["renovate"]["ignore_paths"] == ["**/tests/**"], d["renovate"]
+        cov = sorted(c["directory"] for c in d["covered"])
+        assert cov == ["/", "/packages/ui"], cov
+        assert [u["directory"] for u in d["uncovered"]] == ["/tests/e2e"], d["uncovered"]
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
