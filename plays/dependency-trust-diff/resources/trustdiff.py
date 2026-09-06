@@ -13,6 +13,7 @@ Set TRUSTDIFF_FIXTURE_DIR to a directory of <name>@<version>.json files to run o
 Stdlib only. Executes nothing the repository ships.
 """
 import json
+import re
 import os
 import sys
 import urllib.parse
@@ -23,7 +24,7 @@ from pathlib import Path
 REGISTRY = "https://registry.npmjs.org"
 FIXTURE_DIR = os.environ.get("TRUSTDIFF_FIXTURE_DIR")
 LOCKFILES = ["package-lock.json", "npm-shrinkwrap.json"]
-OTHER_LOCKS = ["pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock"]
+OTHER_LOCKS = ["bun.lockb", "bun.lock"]
 
 
 def load_json(p):
@@ -69,13 +70,102 @@ def locked_packages(root):
         else:
             return lf, None, None, f"{lf} has neither `packages` nor `dependencies`"
         return lf, pinned, direct, None
+    if (root / "pnpm-lock.yaml").is_file():
+        pinned, direct = read_pnpm_lock(Path(root / "pnpm-lock.yaml").read_text(encoding="utf-8", errors="replace"))
+        if not direct:  # older lockfile without importers: fall back to package.json for the direct set
+            pj = load_json(root / "package.json") or {}
+            for k in ("dependencies", "devDependencies", "optionalDependencies"):
+                direct.update((pj.get(k) or {}).keys())
+        if pinned:
+            return "pnpm-lock.yaml", pinned, direct, None
+        return "pnpm-lock.yaml", None, None, "pnpm-lock.yaml could not be read (no packages section recognised)"
+    if (root / "yarn.lock").is_file():
+        pinned = read_yarn_lock(Path(root / "yarn.lock").read_text(encoding="utf-8", errors="replace"))
+        pj = load_json(root / "package.json") or {}
+        direct = set()
+        for k in ("dependencies", "devDependencies", "optionalDependencies"):
+            direct.update((pj.get(k) or {}).keys())
+        if pinned:
+            return "yarn.lock", pinned, direct, None
+        return "yarn.lock", None, None, "yarn.lock could not be read (no version entries recognised)"
     others = [o for o in OTHER_LOCKS if (root / o).is_file()]
     if others:
-        return None, None, None, (f"only {', '.join(others)} found; this Play reads npm's "
-                                  "package-lock.json or npm-shrinkwrap.json")
+        return None, None, None, (f"only {', '.join(others)} found; this Play reads package-lock.json, "
+                                  "npm-shrinkwrap.json, pnpm-lock.yaml and yarn.lock")
     if (root / "package.json").is_file():
         return None, None, None, "package.json without a lockfile: nothing is pinned, so there is no locked version to compare"
     return None, None, None, "no package.json: not an npm project"
+
+
+PNPM_KEY = re.compile(r"^  ['\"]?/?(@?[^@'\"\s/]+(?:/[^@'\"\s/]+)?)@([^'\"(:\s]+)")   # v6/v9: name@1.2.3 or /name@1.2.3
+PNPM_KEY_V5 = re.compile(r"^  /(@?[^/\s]+(?:/[^/\s]+)?)/(\d[^:_(\s]*)")               # v5: /name/1.2.3
+
+
+def read_pnpm_lock(text):
+    """{name: version} for every package pnpm pinned, and the root importer's direct names.
+    A regex read of the two sections that matter; avoids a YAML dependency."""
+    pinned, direct = {}, set()
+    section, importer, dep_kind = None, None, None
+    pending = None  # direct dependency awaiting its `version:` line
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith(" "):
+            section = line.rstrip(":").strip()
+            importer = None
+            continue
+        if section == "importers":
+            if line.startswith("  ") and not line.startswith("   "):
+                importer = line.strip().rstrip(":").strip("'\"")
+                continue
+            if importer in (".", "") and line.startswith("    ") and not line.startswith("     "):
+                dep_kind = line.strip().rstrip(":")
+                continue
+            if importer in (".", "") and dep_kind in ("dependencies", "devDependencies", "optionalDependencies"):
+                if line.startswith("      ") and not line.startswith("       ") and line.rstrip().endswith(":"):
+                    pending = line.strip().rstrip(":").strip("'\"")
+                    direct.add(pending)
+                elif pending and line.strip().startswith("version:"):
+                    v = line.split("version:", 1)[1].strip().strip("'\"").split("(")[0]
+                    if v and v[0].isdigit():
+                        pinned.setdefault(pending, v)
+                    pending = None
+        elif section == "packages":
+            m = PNPM_KEY.match(line) or PNPM_KEY_V5.match(line)
+            if m and line.rstrip().endswith(":"):
+                name, ver = m.group(1), m.group(2).split("(")[0].split("_")[0]
+                if ver and ver[0].isdigit():
+                    pinned.setdefault(name, ver)
+    return pinned, direct
+
+
+YARN_HEADER = re.compile(r"^\S.*:$")
+
+
+def read_yarn_lock(text):
+    """{name: version} from yarn.lock, classic (`version "1.2.3"`) and berry (`version: 1.2.3`)."""
+    pinned = {}
+    names = []
+    for line in text.splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        if YARN_HEADER.match(line):
+            names = []
+            for key in line.rstrip(":").split(","):
+                key = key.strip().strip("'\"")
+                if key.startswith("__metadata"):
+                    continue
+                name = key.rsplit("@", 1)[0] if key.count("@") > (1 if key.startswith("@") else 0) else key
+                if name:
+                    names.append(name)
+            continue
+        if names and line.startswith("  ") and line.strip().startswith("version"):
+            v = line.strip()[len("version"):].strip(" :").strip("'\"")
+            if v and v[0].isdigit():
+                for n in names:
+                    pinned.setdefault(n, v)
+            names = []
+    return pinned
 
 
 def norm_license(v):
@@ -191,7 +281,7 @@ def osv_lookup(pairs):
         chunk = pairs[start:start + 1000]
         body = json.dumps({"queries": [{"package": {"name": n, "ecosystem": "npm"}, "version": v} for n, v in chunk]}).encode()
         req = urllib.request.Request(OSV, data=body, headers={
-            "Content-Type": "application/json", "User-Agent": "dependency-trust-diff/0.4 (rote play)"})
+            "Content-Type": "application/json", "User-Agent": "dependency-trust-diff/0.5 (rote play)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 results = json.loads(r.read().decode("utf-8", "replace")).get("results", [])

@@ -202,7 +202,9 @@ packages, and two of them had moved to a "GitHub Actions" publishing account, wh
 case the output tells you to look at rather than assume. It reads registry metadata, never tarballs.
 pnpm, yarn and bun lockfiles are named as unsupported rather than silently skipped.
 
-Its only network access is anonymous GETs to `registry.npmjs.org`. Source under
+Reads `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml` (v5 to v9) and `yarn.lock`
+(classic and berry), so vue, vite, next and babel are in scope, not just npm projects. Its only
+network access is anonymous GETs to `registry.npmjs.org` and one POST to `api.osv.dev`. Source under
 `plays/dependency-trust-diff/`; the self-check runs fully offline against fixtures.
 
 ---

@@ -110,10 +110,61 @@ def test_non_npm_locks_are_named_not_faked():
         (r / "package.json").write_text("{}")
         (r / "pnpm-lock.yaml").write_text("lockfileVersion: 9\n")
         d = run(r, fx)
-        assert d["ok"] is False and "pnpm-lock.yaml" in d["reason"]
+        assert d["ok"] is False and "could not be read" in d["reason"]
         (r / "pnpm-lock.yaml").unlink()
         d = run(r, fx)
         assert d["ok"] is False and "nothing is pinned" in d["reason"]
+
+
+def test_pnpm_and_yarn_lockfiles_are_read():
+    with tempfile.TemporaryDirectory() as t:
+        r, fx = Path(t) / "repo", Path(t) / "fx"
+        r.mkdir(); fx.mkdir()
+        (r / "package.json").write_text(json.dumps({"dependencies": {"vue": "^3.4"}, "devDependencies": {"vitest": "^1"}}))
+        (r / "pnpm-lock.yaml").write_text("""lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      vue:
+        specifier: ^3.4
+        version: 3.4.21(typescript@5.4.5)
+    devDependencies:
+      vitest:
+        specifier: ^1
+        version: 1.6.0
+
+packages:
+
+  '@babel/code-frame@7.24.2':
+    resolution: {integrity: sha512-x}
+
+  vue@3.4.21:
+    resolution: {integrity: sha512-y}
+
+  vitest@1.6.0:
+    resolution: {integrity: sha512-z}
+""")
+        for n, v in (("vue", "3.4.21"), ("vitest", "1.6.0")):
+            fixture(fx, n, v, publisher="p", license="MIT", maintainers=["p"])
+            fixture(fx, n, "latest", version=v, publisher="p", license="MIT", maintainers=["p"])
+        (fx / "osv.json").write_text("{}")
+        d = run(r, fx)
+        assert d["ok"] and d["lockfile"] == "pnpm-lock.yaml"
+        assert d["pinned_total"] == 3 and sorted(d["current"]) == ["vitest", "vue"], d
+        # v5 shape
+        (r / "pnpm-lock.yaml").write_text("lockfileVersion: 5.4\n\nspecifiers:\n  vue: ^3.4\n\ndependencies:\n  vue: 3.4.21\n\npackages:\n\n  /vue/3.4.21:\n    resolution: {integrity: x}\n\n  /@babel/core/7.24.0:\n    resolution: {integrity: y}\n")
+        d = run(r, fx)
+        assert d["pinned_total"] == 2 and d["checked"] == 1  # direct set falls back to package.json; vitest is not in this lock
+        # yarn classic and berry
+        (r / "pnpm-lock.yaml").unlink()
+        (r / "yarn.lock").write_text('# yarn lockfile v1\n\n"@babel/core@^7.0.0", "@babel/core@^7.24.0":\n  version "7.24.0"\n\nvue@^3.4:\n  version "3.4.21"\n\nvitest@^1:\n  version "1.6.0"\n')
+        d = run(r, fx)
+        assert d["lockfile"] == "yarn.lock" and d["pinned_total"] == 3 and sorted(d["current"]) == ["vitest", "vue"], d
+        (r / "yarn.lock").write_text('__metadata:\n  version: 8\n\n"@babel/core@npm:^7.24.0":\n  version: 7.24.0\n\n"vue@npm:^3.4":\n  version: 3.4.21\n\n"vitest@npm:^1":\n  version: 1.6.0\n')
+        d = run(r, fx)
+        assert d["pinned_total"] == 3 and sorted(d["current"]) == ["vitest", "vue"], d
 
 
 if __name__ == "__main__":
