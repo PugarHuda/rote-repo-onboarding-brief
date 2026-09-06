@@ -186,6 +186,28 @@ def unlisted_packages(root, member_dirs, max_depth=3):
     return sorted(set(found))
 
 
+def pipeline_coverage(root, members, dirs):
+    """turbo.json (v2 `tasks`, v1 `pipeline`) names tasks every package is expected to run.
+    A package without that script is silently skipped by turbo; list them per task."""
+    turbo = load_json(root / "turbo.json")
+    if not isinstance(turbo, dict):
+        return None
+    tasks = turbo.get("tasks") if isinstance(turbo.get("tasks"), dict) else turbo.get("pipeline")
+    if not isinstance(tasks, dict):
+        return None
+    names = sorted({t.split("#", 1)[-1] for t in tasks if not t.startswith("//")})[:12]
+    scripts_by = {}
+    for d, m in zip(dirs, members):
+        pkg = load_json(d / "package.json") or {}
+        scripts_by[m["name"]] = set((pkg.get("scripts") or {}).keys())
+    out = []
+    for t in names:
+        missing = sorted(n for n, sc in scripts_by.items() if t not in sc)
+        out.append({"task": t, "packages_with_script": len(scripts_by) - len(missing),
+                    "packages_without": missing[:25], "without_count": len(missing)})
+    return {"file": "turbo.json", "tasks": out}
+
+
 def find_cycles(edges, names):
     """Every dependency cycle among workspace members."""
     graph = {n: [] for n in names}
@@ -227,7 +249,7 @@ def main():
         }, indent=2))
         return 0
 
-    members, skipped = [], []
+    members, skipped, member_dirs = [], [], []
     for d in dirs:
         info = member_info(d)
         rel = str(d.relative_to(root))
@@ -235,6 +257,8 @@ def main():
             skipped.append({"path": rel, "why": "no readable manifest with a name"})
             continue
         members.append({**info, "path": rel})
+        member_dirs.append(d)
+    pipeline = pipeline_coverage(root, members, member_dirs)
 
     names = {m["name"] for m in members}
     versions = {m["name"]: m.get("version") for m in members}
@@ -293,6 +317,7 @@ def main():
             "version_skew": skew[:25],
             "internal_version_mismatch": mismatches[:50],
             "unlisted_packages": unlisted,
+            "pipeline": pipeline,
             "skipped": skipped[:50],
         }
         text = json.dumps(payload, separators=(",", ":"))

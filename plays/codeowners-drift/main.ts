@@ -3,7 +3,7 @@
  * @rote-frontmatter
  * ---
  * name: codeowners-drift
- * description: Audit a repository's CODEOWNERS file against the files it actually tracks. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. A CODEOWNERS file is written once and then the tree moves out from under it, so review routing silently stops working — a rule points at a directory that was renamed, a broad rule added at the bottom quietly overrides every rule above it because the LAST match wins, and half the repository ends up with no owner and no required reviewer. This reports each rule with how many tracked files it matches and how many it still owns after later rules override it, names the rules that match nothing and the rules that are fully shadowed, lists every file no rule covers grouped by top-level directory with a coverage percentage, and flags syntax the forge will reject — negation, malformed owner handles, GitLab section headers in a GitHub file. It reads the one file GitHub actually uses when several are present and says which. Matching follows GitHub's documented semantics, including that docs/* does not descend into subdirectories. GitLab files are recognised too (a .gitlab/CODEOWNERS or [Section] headers) and evaluated the GitLab way — sections independent, optional ^[Sections] and [Section][n] approval counts read, a rule with no owner inheriting the section default. With verify_owners=true it asks api.github.com anonymously whether each @user and @org exists and reports missing handles, while saying plainly that team membership needs a token and is never claimed. What it cannot check is stated in the output — whether a team has write access and whether branch protection actually requires a code owner review need an authenticated API, so they are listed as not checked rather than assumed fine. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
+ * description: Audit a repository's CODEOWNERS file against the files it actually tracks. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. A CODEOWNERS file is written once and then the tree moves out from under it, so review routing silently stops working — a rule points at a directory that was renamed, a broad rule added at the bottom quietly overrides every rule above it because the LAST match wins, and half the repository ends up with no owner and no required reviewer. This reports each rule with how many tracked files it matches and how many it still owns after later rules override it, names the rules that match nothing (and, on a full local checkout, the last commit and date the path still existed), the rules that are fully shadowed, lists every file no rule covers grouped by top-level directory with a coverage percentage, and flags syntax the forge will reject — negation, malformed owner handles, GitLab section headers in a GitHub file. It reads the one file GitHub actually uses when several are present and says which. Matching follows GitHub's documented semantics, including that docs/* does not descend into subdirectories. GitLab files are recognised too (a .gitlab/CODEOWNERS or [Section] headers) and evaluated the GitLab way — sections independent, optional ^[Sections] and [Section][n] approval counts read, a rule with no owner inheriting the section default. With verify_owners=true it asks api.github.com anonymously whether each @user and @org exists and reports missing handles, while saying plainly that team membership needs a token and is never claimed. What it cannot check is stated in the output — whether a team has write access and whether branch protection actually requires a code owner review need an authenticated API, so they are listed as not checked rather than assumed fine. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
  * source: https://github.com/PugarHuda/rote-repo-onboarding-brief
  * tags:
  * - domain-code-analysis
@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.2.2
+ *   version: 0.3.0
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
@@ -183,9 +183,15 @@ if (!data) {
 
   lines.push("MATCHES NOTHING");
   if (stale.length) {
-    for (const r of stale) lines.push(`  L${S(r["line"])}  ${S(r["pattern"])}`);
+    for (const r of stale) {
+      const ls = (r["last_seen"] as Dict) ?? {};
+      const when = ls["commit"] ? `last existed in ${S(ls["commit"])} (${S(ls["date"])})`
+        : ls["never"] ? "never existed in this history" : ls["unknown"] ? `history: ${S(ls["unknown"])}` : "";
+      lines.push(`  L${S(r["line"])}  ${S(r["pattern"]).padEnd(44)} ${when}`);
+    }
     lines.push("");
     lines.push("  The path moved or never existed. The forge accepts the rule and routes nothing.");
+    lines.push("  Run against a full local checkout (not a URL) to get the commit that removed each path.");
   } else {
     lines.push("  None. Every rule matches at least one tracked file.");
   }

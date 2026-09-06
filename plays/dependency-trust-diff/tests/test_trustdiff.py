@@ -18,15 +18,21 @@ def run(root, fixtures, *extra):
     return json.loads(p.stdout)
 
 
-def meta(version, publisher, license, maintainers, deprecated=False, hooks=(), provenance=False):
+def meta(version, publisher, license, maintainers, deprecated=False, hooks=(), provenance=False, size=None):
     d = {"version": version, "_npmUser": {"name": publisher}, "license": license,
          "maintainers": [{"name": m} for m in maintainers],
          "scripts": {h: "node evil.js" for h in hooks}, "dist": {}}
+    if size:
+        d["dist"]["unpackedSize"] = size
     if provenance:
         d["dist"]["attestations"] = {"url": "https://registry.npmjs.org/-/npm/v1/attestations/x", "provenance": {"predicateType": "https://slsa.dev/provenance/v1"}}
     if deprecated:
         d["deprecated"] = "use something else"
     return d
+
+
+def worm_row(d):
+    return next(f for f in d["flagged"] if f["name"] == "worm")
 
 
 def fixture(dirp, name, filever, version=None, **kw):
@@ -66,8 +72,8 @@ def test_v3_lockfile_direct_scope_and_findings():
         # ghost: no fixture for latest -> UNCHECKED
         fixture(fx, "ghost", "1.0.0", publisher="x", license="MIT", maintainers=["x"])
         # worm: the newer version drops its build attestation and grows a postinstall hook
-        fixture(fx, "worm", "3.0.0", publisher="w", license="MIT", maintainers=["w"], provenance=True)
-        fixture(fx, "worm", "latest", version="3.0.1", publisher="w", license="MIT", maintainers=["w"], hooks=("postinstall",))
+        fixture(fx, "worm", "3.0.0", publisher="w", license="MIT", maintainers=["w"], provenance=True, size=120_000)
+        fixture(fx, "worm", "latest", version="3.0.1", publisher="w", license="MIT", maintainers=["w"], hooks=("postinstall",), size=900_000)
         # old: latest deprecated
         fixture(fx, "old", "1.0.0", publisher="x", license="MIT", maintainers=["x"])
         fixture(fx, "old", "latest", version="1.1.0", publisher="x", license="MIT", maintainers=["x"], deprecated=True)
@@ -84,7 +90,8 @@ def test_v3_lockfile_direct_scope_and_findings():
         flagged = {f["name"]: f["findings"] for f in d["flagged"]}
         assert flagged["left-pad"] == ["PUBLISHER_CHANGED", "LICENSE_CHANGED", "MAINTAINERS_REPLACED"]
         assert flagged["old"] == ["LATEST_DEPRECATED"]
-        assert flagged["worm"] == ["INSTALL_SCRIPT_ADDED", "PROVENANCE_DROPPED"]
+        assert flagged["worm"] == ["INSTALL_SCRIPT_ADDED", "PROVENANCE_DROPPED", "SIZE_JUMP"]
+        assert worm_row(d)["size_jump"] == {"from": 120_000, "to": 900_000, "factor": 7.5}
         worm = next(f for f in d["flagged"] if f["name"] == "worm")
         assert worm["install_scripts_added"] == ["postinstall"]
         assert d["behind"] == [{"name": "@scope/pkg", "locked": "2.0.0", "latest": "2.1.0"}]

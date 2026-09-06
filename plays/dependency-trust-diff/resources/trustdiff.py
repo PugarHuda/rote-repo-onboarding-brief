@@ -125,6 +125,8 @@ def summarize(meta):
         # Lifecycle hooks that run arbitrary code on `npm install`. A hook that
         # appears in a newer version is the shape of every recent npm worm.
         "install_scripts": sorted(k for k in INSTALL_HOOKS if scripts.get(k)),
+        "unpacked_size": dist.get("unpackedSize") if isinstance(dist.get("unpackedSize"), int) else None,
+        "file_count": dist.get("fileCount") if isinstance(dist.get("fileCount"), int) else None,
         # npm provenance: a Sigstore attestation linking the tarball to the CI run
         # that built it. Present, then absent, means the publish path changed.
         "provenance": bool(dist.get("attestations")),
@@ -157,6 +159,11 @@ def check(name, locked_version):
         row["install_scripts_added"] = added_hooks
     if have["provenance"] and not latest["provenance"]:
         row["findings"].append("PROVENANCE_DROPPED")
+    a, b = have.get("unpacked_size"), latest.get("unpacked_size")
+    if a and b and b >= 3 * a and b - a >= 200_000:
+        # A tarball that triples between versions is worth a look; 200 KB floors out tiny packages.
+        row["findings"].append("SIZE_JUMP")
+        row["size_jump"] = {"from": a, "to": b, "factor": round(b / a, 1)}
     row["status"] = "FLAGGED" if row["findings"] else "BEHIND"
     return row
 
@@ -184,7 +191,7 @@ def osv_lookup(pairs):
         chunk = pairs[start:start + 1000]
         body = json.dumps({"queries": [{"package": {"name": n, "ecosystem": "npm"}, "version": v} for n, v in chunk]}).encode()
         req = urllib.request.Request(OSV, data=body, headers={
-            "Content-Type": "application/json", "User-Agent": "dependency-trust-diff/0.3 (rote play)"})
+            "Content-Type": "application/json", "User-Agent": "dependency-trust-diff/0.4 (rote play)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 results = json.loads(r.read().decode("utf-8", "replace")).get("results", [])

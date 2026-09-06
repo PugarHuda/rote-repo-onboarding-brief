@@ -163,6 +163,24 @@ def test_owner_verification_uses_api_status_and_never_claims_teams():
         assert d0["owner_check"] is None and "verify_owners=true" in d0["not_checked"][0]
 
 
+def test_stale_rule_reports_when_the_path_last_existed():
+    import shutil
+    if not shutil.which("git"):
+        print("skip: git not on PATH"); return
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@x", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@x")
+        g = lambda *a: subprocess.run(["git", "-C", str(r), *a], check=True, capture_output=True, env=env)
+        g("init", "-q"); touch(r, "old/thing.py", "keep.py")
+        (r / "CODEOWNERS").write_text("old/ @a\nkeep.py @b\nghost/ @c\n")
+        g("add", "-A"); g("commit", "-q", "-m", "one")
+        g("rm", "-q", "-r", "old"); g("commit", "-q", "-m", "drop old")
+        d = run(r)
+        st = {x["pattern"]: x["last_seen"] for x in d["stale_rules"]}
+        assert "commit" in st["old/"] and len(st["old/"]["date"]) == 10, st
+        assert st["ghost/"] == {"never": True}, st
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

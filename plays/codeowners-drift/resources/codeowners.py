@@ -203,6 +203,33 @@ def verify_owners(owners):
     return results, max(0, len(owners) - OWNER_CHECK_CAP)
 
 
+def last_seen(root, pattern):
+    """For a stale rule with a literal path, the last commit that still had it.
+    Returns {"commit", "date"} / {"never": True} / {"unknown": reason}. Shallow clones
+    have no history, and that is said rather than guessed."""
+    lit = pattern.strip("/")
+    if not lit or any(ch in lit for ch in "*?[") :
+        return {"unknown": "wildcard pattern, no single path to look up"}
+    try:
+        shallow = subprocess.run(["git", "-C", str(root), "rev-parse", "--is-shallow-repository"],
+                                 capture_output=True, text=True, timeout=20)
+        if shallow.returncode != 0:
+            return {"unknown": "not a git checkout"}
+        if shallow.stdout.strip() == "true":
+            return {"unknown": "shallow clone — history was not fetched"}
+        p = subprocess.run(["git", "-C", str(root), "log", "-1", "--format=%h %cs", "--", lit],
+                           capture_output=True, text=True, timeout=60)
+        out = p.stdout.strip()
+        if p.returncode != 0:
+            return {"unknown": "git log failed"}
+        if not out:
+            return {"never": True}
+        commit, date = out.split(" ", 1)
+        return {"commit": commit, "date": date}
+    except Exception as e:
+        return {"unknown": type(e).__name__}
+
+
 def audit(root, do_verify=False):
     root = Path(root)
     forge = "gitlab" if (root / ".gitlab/CODEOWNERS").is_file() else "github"
@@ -271,6 +298,8 @@ def audit(root, do_verify=False):
     # that as JSON, and a truncated JSON reads as "no audit", so cap the lists and
     # say how much was left out. Problem rows are kept ahead of healthy ones.
     stale = [r for r in out_rules if r["status"] == "matches nothing"]
+    for r in stale[:40]:  # one git log each; capped
+        r["last_seen"] = last_seen(root, r["pattern"])
     shadow = [r for r in out_rules if r["status"] == "shadowed"]
     RULE_CAP, LIST_CAP = 150, 60
 

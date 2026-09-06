@@ -126,6 +126,21 @@ def test_babel_sized_monorepo_stays_under_rotes_64kb_stdout_cap():
         assert d["version_skew"][0]["package_count"] == 300 and len(d["version_skew"][0]["versions"]) == 12
 
 
+def test_turbo_pipeline_coverage():
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        (r / "package.json").write_text(json.dumps({"name": "root", "workspaces": ["apps/*", "packages/*"]}))
+        (r / "turbo.json").write_text(json.dumps({"tasks": {"build": {"dependsOn": ["^build"]}, "test": {}, "//#root-only": {}}}))
+        mk(r, "apps/web", {"name": "web", "scripts": {"build": "next build", "test": "vitest"}})
+        mk(r, "packages/ui", {"name": "ui", "scripts": {"build": "tsup"}})
+        mk(r, "packages/config", {"name": "config"})
+        d = ws(r)
+        tasks = {t["task"]: t for t in d["pipeline"]["tasks"]}
+        assert set(tasks) == {"build", "test"}  # //#root-only is a root task, not a package task
+        assert tasks["build"]["packages_without"] == ["config"]
+        assert tasks["test"]["packages_without"] == ["config", "ui"] and tasks["test"]["packages_with_script"] == 1
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
