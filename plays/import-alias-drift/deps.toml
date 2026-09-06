@@ -1,0 +1,53 @@
+schema_version = 1
+
+[[tools]]
+id = "python3"
+command = "python3"
+required = true
+
+[[tools.install]]
+manager = "brew"
+package = "python@3"
+
+[[tools.install]]
+manager = "apt"
+package = "python3"
+
+[[tools.install]]
+manager = "system"
+notes = "Any Python 3.9+ on PATH. Every step is a small stdlib-only script; only os, re, json, fnmatch and pathlib are used."
+
+[[tools]]
+id = "sh"
+command = "sh"
+required = true
+
+[[tools.install]]
+manager = "system"
+notes = "POSIX shell, already present on macOS and Linux. Runs one resolver script that turns the `repo` parameter into a directory path."
+
+[[tools]]
+id = "git"
+command = "git"
+required = true
+
+[[tools.install]]
+manager = "brew"
+package = "git"
+
+[[tools.install]]
+manager = "apt"
+package = "git"
+
+[[tools.install]]
+manager = "system"
+notes = "Used only for a shallow clone when `repo` is a URL, and for read-only history queries on a local checkout."
+
+[[tools]]
+id = "coreutils"
+command = "mktemp"
+required = true
+
+[[tools.install]]
+manager = "system"
+notes = "`mktemp` and `tr` from coreutils, used by the resolver to create the clone directory and strip newlines from parameters. Present on every macOS and Linux install."

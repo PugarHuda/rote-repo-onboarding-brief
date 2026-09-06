@@ -5,6 +5,7 @@
 [![codeowners-drift](https://img.shields.io/badge/rote-codeowners--drift-blue)](https://play.modiqo.ai/pugarhuda/codeowners-drift)
 [![dependency-trust-diff](https://img.shields.io/badge/rote-dependency--trust--diff-blue)](https://play.modiqo.ai/pugarhuda/dependency-trust-diff)
 [![dependabot-coverage](https://img.shields.io/badge/rote-dependabot--coverage-blue)](https://play.modiqo.ai/pugarhuda/dependabot-coverage)
+[![import-alias-drift](https://img.shields.io/badge/rote-import--alias--drift-blue)](https://play.modiqo.ai/pugarhuda/import-alias-drift)
 
 A [Rote](https://www.modiqo.ai) Play that briefs you on an unfamiliar repository — and **checks the
 setup instructions instead of trusting them**.
@@ -234,6 +235,46 @@ disabled** (`open-pull-requests-limit: 0`), and **entries pointing at nothing**.
 switched on in repository settings cannot be read from the file and is listed under NOT CHECKED.
 Source under `plays/dependabot-coverage/`; self-check runs offline.
 
+An alias `ignore: - dependency-name: "*"` with nothing narrowing it is reported separately: the
+entry runs on schedule, reads as covered, and drops every version update it finds. The same
+wildcard narrowed by `update-types` is the ordinary "no majors" rule and is never reported.
+Renovate configs are read as the json5 they are — comments, bare keys, single-quoted strings —
+because a config this play cannot parse would make it call a fully covered repository 0% covered.
+
+## import-alias-drift
+
+```sh
+rote play run pugarhuda/import-alias-drift repo=https://github.com/nuxt/nuxt
+```
+
+TypeScript says `@/lib/db` means `src/lib/db`. Vite, jest and webpack each keep their **own copy**
+of that map, by hand, and nothing checks that the copies agree. The editor is happy, `tsc` is
+happy, and the test run cannot find the module.
+
+This reads every alias in every `tsconfig`/`jsconfig` (extends chain merged, `baseUrl` honoured,
+comments and trailing commas parsed rather than choked on), counts how many files import each one
+and how many of those are tests, then checks each against the resolvers that have to mirror it:
+`vite`, `vitest`, `jest` (config file or the `jest` field of `package.json`), `webpack`, `rollup`.
+
+The distinctions are the whole point:
+
+- A resolver that reads tsconfig itself **cannot drift** — `vite-tsconfig-paths`, ts-jest's
+  `pathsToModuleNameMapper`, `tsconfig-paths-webpack-plugin` and Next.js are named as mirrored
+  rather than reported.
+- A bundler config is a **program, not data**. Only literal keys of an `alias` or
+  `moduleNameMapper` block are read, and a block that spreads or computes its keys is reported as
+  **unreadable**, never as empty.
+- A target under `lib/`, `dist/` or `node_modules` is absent from a fresh checkout **by design**,
+  so it is separated from one that is simply gone.
+- A jest key is a regex: `^@/(.*)$` matches `@/*` in both directions, and a css mock is not an alias.
+- Only a tsconfig at the repository **root** is measured against the root's bundler configs; one
+  inside a test corpus answers to a build this play never saw.
+
+On `nuxt/nuxt`: 17 aliases, 6 declared for the type checker that `vitest.config.ts` never mirrors,
+one of them imported by 7 files, 6 of them tests. On `vuetify/vuetify` and `excalidraw`: no drift,
+and excalidraw's computed alias block is reported as unread rather than as clean. Source under
+`plays/import-alias-drift/`; seven self-checks run offline.
+
 ---
 
 # How these differ from the Plays next to them
@@ -248,6 +289,7 @@ does that they do not.
 | codeowners-drift | none audit CODEOWNERS; `reviewer-finder` and `bus-factor` answer who *should* own code | Rules that match nothing, rules **shadowed** by a later rule (last match wins), files with no owner, GitHub *and* GitLab semantics, optional `verify_owners` against api.github.com |
 | dependabot-coverage | none; `dependency-vulnerability-check` and `dep-vet` look at versions, not at what the bot watches | The diff between the manifest directories a tree contains and the (ecosystem, directory) pairs `dependabot.yml`/renovate were told to watch, with disabled and stale entries |
 | dependency-trust-diff | `package-abandonment-signal`, `upstream-pulse`, `pkg-xray` (health of the latest version), `npm-scripts-audit` (hooks already installed) | Diffs the version you **pinned** against `latest` on the trust axes a version bump hides: publisher, maintainers, license, **install hook added**, **provenance dropped** |
+| import-alias-drift | a registry search for `tsconfig paths alias` returns nothing; `dep-skew` compares dependency versions, not module resolution | The alias map exists three times — tsconfig, bundler, test runner — and only one of them type-checks. Reports the ones a resolver has to mirror **by hand** and does not, with how many files (and how many tests) import each, while naming the plugins that make mirroring automatic instead of reporting them |
 
 Shared rules that no neighbour states as plainly: read-only, stdlib only, nothing the target
 repository ships is ever executed, a fetch failure is never reported as "fine", and every analyzer
