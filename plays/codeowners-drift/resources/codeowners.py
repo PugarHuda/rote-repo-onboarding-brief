@@ -173,6 +173,12 @@ def audit(root):
     unowned_dirs = sorted(by_dir.items(), key=lambda kv: (-kv[1], kv[0]))
 
     owned = len(files) - len(unowned)
+    # rote captures 65536 bytes of a step's stdout. A 2,000-rule file blows past
+    # that as JSON, and a truncated JSON reads as "no audit", so cap the lists and
+    # say how much was left out. Problem rows are kept ahead of healthy ones.
+    stale = [r for r in out_rules if r["status"] == "matches nothing"]
+    shadow = [r for r in out_rules if r["status"] == "shadowed"]
+    RULE_CAP, LIST_CAP = 150, 60
     return {
         "root": str(root), "is_present": True,
         "codeowners_file": used,
@@ -180,15 +186,21 @@ def audit(root):
         "file_count": len(files), "file_source": source,
         "owned_count": owned,
         "coverage_pct": round(100.0 * owned / len(files), 1) if files else 0.0,
-        "rules": out_rules,
-        "stale_rules": [r for r in out_rules if r["status"] == "matches nothing"],
-        "shadowed_rules": [r for r in out_rules if r["status"] == "shadowed"],
+        "rule_count": len(out_rules),
+        "rules": out_rules[:RULE_CAP],
+        "rules_omitted": max(0, len(out_rules) - RULE_CAP),
+        "stale_count": len(stale),
+        "stale_rules": stale[:LIST_CAP],
+        "shadowed_count": len(shadow),
+        "shadowed_rules": shadow[:LIST_CAP],
         "unowned_count": len(unowned),
-        "unowned_by_top_dir": [{"dir": d, "files": c} for d, c in unowned_dirs],
+        "unowned_by_top_dir": [{"dir": d, "files": c} for d, c in unowned_dirs[:LIST_CAP]],
         "unowned_sample": unowned[:25],
+        "owner_count": len(owner_files),
         "owners": [{"owner": o, "files": c} for o, c in
-                   sorted(owner_files.items(), key=lambda kv: (-kv[1], kv[0]))],
-        "problems": problems,
+                   sorted(owner_files.items(), key=lambda kv: (-kv[1], kv[0]))[:LIST_CAP]],
+        "problems": problems[:LIST_CAP],
+        "problem_count": len(problems),
         "not_checked": [
             "whether each @user or @org/team exists and has write access — that needs the forge API",
             "branch protection: whether code owner review is actually required",

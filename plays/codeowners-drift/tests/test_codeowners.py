@@ -91,6 +91,24 @@ def test_syntax_problems_and_precedence():
         assert d["unowned_count"] == 4 and d["owners"] == []  # a.py, b.py, both CODEOWNERS files
 
 
+def test_huge_rule_files_stay_under_rotes_64kb_stdout_cap():
+    # Regression: home-assistant/core has 2,183 rules; the uncapped JSON blew past
+    # rote's 65536-byte stdout capture and the presentation saw a truncated body.
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        touch(r, "src/keep.py")
+        body = "\n".join(f"/gone/dir{i}/  @org/team{i}" for i in range(2500)) + "\nsrc/ @org/src\n"
+        (r / "CODEOWNERS").write_text(body)
+        p = subprocess.run([sys.executable, str(HERE / "codeowners.py"), str(r)],
+                           capture_output=True, text=True, timeout=120)
+        assert p.returncode == 0, p.stderr
+        assert len(p.stdout.encode()) < 65536, len(p.stdout)
+        d = json.loads(p.stdout)
+        assert d["rule_count"] == 2501 and len(d["rules"]) == 150 and d["rules_omitted"] == 2351
+        assert d["stale_count"] == 2500 and len(d["stale_rules"]) == 60
+        assert d["coverage_pct"] == 50.0  # src/keep.py owned, CODEOWNERS itself not
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

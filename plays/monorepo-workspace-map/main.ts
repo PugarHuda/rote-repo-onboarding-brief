@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.1.1
+ *   version: 0.1.2
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
@@ -145,10 +145,13 @@ if (!data) {
   }
 
   const lines: string[] = [];
-  lines.push(`WORKSPACE MAP · ${S(data["workspace_kind"])} · ${members.length} packages`);
+  lines.push(`WORKSPACE MAP · ${S(data["workspace_kind"])} · ${S(data["member_count"])} packages`);
   lines.push("");
 
   lines.push("PACKAGES");
+  if (Number(data["members_omitted"]) > 0) {
+    lines.push(`  (showing ${members.length} of ${S(data["member_count"])} packages)`);
+  }
   for (const m of members) {
     const name = S(m["name"]);
     const used = dependents.get(name)?.length ?? 0;
@@ -163,6 +166,7 @@ if (!data) {
   if (edges.length) {
     lines.push("INTERNAL DEPENDENCIES");
     for (const [from, to] of edges) lines.push(`  ${from}  ->  ${to}`);
+    if (Number(data["edges_omitted"]) > 0) lines.push(`  … ${S(data["edges_omitted"])} more edges not listed`);
     lines.push("");
   }
 

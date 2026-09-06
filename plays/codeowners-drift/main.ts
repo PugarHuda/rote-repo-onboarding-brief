@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.1.0
+ *   version: 0.1.1
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
@@ -137,7 +137,7 @@ if (!data) {
   const others = (data["other_codeowners_files"] as string[]) ?? [];
 
   const lines: string[] = [];
-  lines.push(`CODEOWNERS AUDIT · ${S(data["codeowners_file"])} · ${rules.length} rules · ` +
+  lines.push(`CODEOWNERS AUDIT · ${S(data["codeowners_file"])} · ${S(data["rule_count"])} rules · ` +
     `${S(data["file_count"])} tracked files`);
   lines.push("");
   if (others.length) {
@@ -156,6 +156,9 @@ if (!data) {
     lines.push(`  ${tag}  L${String(r["line"]).padEnd(4)} ${S(r["pattern"]).padEnd(36)}  ` +
       `matches ${String(r["matched"]).padStart(5)} · owns ${String(r["owns"]).padStart(5)}  ` +
       `${((r["owners"] as string[]) ?? []).join(" ") || "(no owner — clears ownership)"}`);
+  }
+  if (Number(data["rules_omitted"]) > 0) {
+    lines.push(`  … ${S(data["rules_omitted"])} more rules not listed (stale and shadowed ones are always listed below)`);
   }
   lines.push("");
 
@@ -208,10 +211,13 @@ if (!data) {
   lines.push("NOT CHECKED");
   for (const n of (data["not_checked"] as string[]) ?? []) lines.push(`  ${n}`);
 
-  const issues = stale.length + shadowed.length + problems.length;
+  const nStale = Number(data["stale_count"] ?? stale.length);
+  const nShadow = Number(data["shadowed_count"] ?? shadowed.length);
+  const nProb = Number(data["problem_count"] ?? problems.length);
+  const issues = nStale + nShadow + nProb;
   const verdict = issues === 0
     ? `${S(data["coverage_pct"])}% covered, every rule live`
-    : `${S(data["coverage_pct"])}% covered · ${stale.length} stale · ${shadowed.length} shadowed · ${problems.length} syntax`;
+    : `${S(data["coverage_pct"])}% covered · ${nStale} stale · ${nShadow} shadowed · ${nProb} syntax`;
 
   out.human(lines.join("\n"));
   out.summary(verdict);
@@ -225,8 +231,12 @@ if (!data) {
     owned_count: data["owned_count"],
     unowned_count: data["unowned_count"],
     coverage_pct: data["coverage_pct"],
+    rule_count: data["rule_count"],
     rules,
+    rules_omitted: data["rules_omitted"],
+    stale_count: nStale,
     stale_rules: stale,
+    shadowed_count: nShadow,
     shadowed_rules: shadowed,
     unowned_by_top_dir: unownedDirs,
     unowned_sample: data["unowned_sample"],

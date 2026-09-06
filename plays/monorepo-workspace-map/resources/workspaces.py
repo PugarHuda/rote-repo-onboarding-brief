@@ -196,17 +196,25 @@ def main():
     skew.sort(key=lambda s: -len(s["versions"]))
 
     depended_on = {b for _, b in edges}
+    # rote keeps 64KB of a step's stdout; a truncated JSON reads as "no map".
+    # Cap the long lists and report how much was left out.
+    members_sorted = sorted(members, key=lambda m: m["path"])
+    edges_sorted = sorted(edges)
+    MEMBER_CAP, EDGE_CAP = 250, 400
     print(json.dumps({
         "is_monorepo": True,
         "root": str(root),
         "workspace_kind": kind,
         "member_count": len(members),
-        "members": sorted(members, key=lambda m: m["path"]),
-        "internal_edges": sorted(edges),
+        "members": [{k: v for k, v in m.items() if k != "deps"} for m in members_sorted[:MEMBER_CAP]],
+        "members_omitted": max(0, len(members) - MEMBER_CAP),
+        "edge_count": len(edges),
+        "internal_edges": edges_sorted[:EDGE_CAP],
+        "edges_omitted": max(0, len(edges) - EDGE_CAP),
         "leaf_packages": sorted(n for n in names if n not in depended_on),
-        "cycles": find_cycles(edges, sorted(names)),
+        "cycles": find_cycles(edges, sorted(names))[:50],
         "version_skew": skew[:25],
-        "skipped": skipped,
+        "skipped": skipped[:50],
     }, indent=2))
     return 0
 

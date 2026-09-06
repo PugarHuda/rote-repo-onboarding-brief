@@ -113,8 +113,9 @@ def summarize(meta):
         "version": meta.get("version"),
         "publisher": (user.get("name") if isinstance(user, dict) else None),
         "license": norm_license(meta.get("license") or meta.get("licenses")),
+        # capped: rote keeps 64KB of stdout, and some packages list 40+ maintainers
         "maintainers": sorted(m.get("name") for m in (meta.get("maintainers") or [])
-                              if isinstance(m, dict) and m.get("name")),
+                              if isinstance(m, dict) and m.get("name"))[:8],
         "deprecated": bool(meta.get("deprecated")),
     }
 

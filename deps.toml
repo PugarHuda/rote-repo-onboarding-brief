@@ -42,3 +42,12 @@ package = "git"
 [[tools.install]]
 manager = "system"
 notes = "Used only for a shallow clone when `repo` is a URL, and for read-only history queries on a local checkout."
+
+[[tools]]
+id = "coreutils"
+command = "mktemp"
+required = true
+
+[[tools.install]]
+manager = "system"
+notes = "`mktemp` and `tr` from coreutils, used by the resolver to create the clone directory and strip newlines from parameters. Present on every macOS and Linux install."
