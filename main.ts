@@ -3,7 +3,7 @@
  * @rote-frontmatter
  * ---
  * name: repo-onboarding-brief
- * description: Onboard to an unfamiliar repository, and check its setup instructions instead of trusting them. Cross-references every command the README tells you to run against what the project actually defines — package.json scripts, Make targets, justfile recipes, Cargo bins, go run/test paths, pyproject scripts, tox envs, nox sessions, Taskfile tasks, compose services, Dockerfiles, and npx binaries declared as dependencies — and against the tools present on your machine — including their versions against the floors the project declares in engines, .nvmrc, requires-python, .python-version, go.mod, rust-toolchain and .tool-versions, read by running `--version` on your own tools, never the project's code — so a documented-but-nonexistent command, or a Node two majors too old, is named before you lose an afternoon to it. Also reports stack and version floors, entry points, a layout map, risk flags (no lockfile, no tests, no CI, committed secret-shaped files), and an explicit list of what it could not determine. Read-only, no credentials, no adapters. A local path is inspected in place, a URL is shallow-cloned to a temp directory, and nothing the repository ships is ever executed.
+ * description: Onboard to an unfamiliar repository, and check its setup instructions instead of trusting them. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. Cross-references every command the README tells you to run against what the project actually defines — package.json scripts, Make targets, justfile recipes, Cargo bins, go run/test paths, pyproject scripts, tox envs, nox sessions, Taskfile tasks, compose services, Dockerfiles, and npx binaries declared as dependencies — and against the tools present on your machine — including their versions against the floors the project declares in engines, .nvmrc, requires-python, .python-version, go.mod, rust-toolchain and .tool-versions, read by running `--version` on your own tools, never the project's code — so a documented-but-nonexistent command, or a Node two majors too old, is named before you lose an afternoon to it. Also reports stack and version floors, entry points, a layout map, risk flags (no lockfile, no tests, no CI, committed secret-shaped files), and an explicit list of what it could not determine. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
  * source: https://github.com/PugarHuda/rote-repo-onboarding-brief
  * tags:
  * - domain-code-analysis
@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.3.0
+ *   version: 0.3.1
  *   status: released
  *   kind: atomic
  *   flow_type: parallel

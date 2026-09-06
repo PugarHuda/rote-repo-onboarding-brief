@@ -3,7 +3,7 @@
  * @rote-frontmatter
  * ---
  * name: monorepo-workspace-map
- * description: Map a monorepo's package boundaries — which workspace packages exist, which depend on which, which are leaves nobody imports, and which dependency cycles exist. Also reports version skew, where the same external dependency is pinned differently in different packages, which is the papercut that builds fine and then breaks once at runtime; internal version mismatch, where a package asks for a range of a sibling that the workspace copy does not satisfy, so the package manager silently installs it from the registry instead of linking it; and unlisted packages, directories holding a manifest that no workspace glob covers. Understands npm and yarn workspaces, pnpm workspaces, Cargo workspaces, go.work, uv workspaces, and lerna. If the repository is not a monorepo it says so and lists every workspace definition it looked for, rather than returning an empty map. Read-only, no credentials, no adapters. A local path is inspected in place, a URL is shallow-cloned to a temp directory, and nothing the repository ships is ever executed.
+ * description: Map a monorepo's package boundaries — which workspace packages exist, which depend on which, which are leaves nobody imports, and which dependency cycles exist. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. Also reports version skew, where the same external dependency is pinned differently in different packages, which is the papercut that builds fine and then breaks once at runtime; internal version mismatch, where a package asks for a range of a sibling that the workspace copy does not satisfy, so the package manager silently installs it from the registry instead of linking it; and unlisted packages, directories holding a manifest that no workspace glob covers. Understands npm and yarn workspaces, pnpm workspaces, Cargo workspaces, go.work, uv workspaces, and lerna. If the repository is not a monorepo it says so and lists every workspace definition it looked for, rather than returning an empty map. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
  * source: https://github.com/PugarHuda/rote-repo-onboarding-brief
  * tags:
  * - domain-code-analysis
@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.2.2
+ *   version: 0.2.3
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
