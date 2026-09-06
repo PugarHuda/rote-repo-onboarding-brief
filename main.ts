@@ -3,7 +3,7 @@
  * @rote-frontmatter
  * ---
  * name: repo-onboarding-brief
- * description: Onboard to an unfamiliar repository, and check its setup instructions instead of trusting them. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. Cross-references every command the README tells you to run against what the project actually defines — package.json scripts, Make targets, justfile recipes, Cargo bins, go run/test paths, pyproject scripts, tox envs, nox sessions, Taskfile tasks, compose services, Dockerfiles, and npx binaries declared as dependencies — and against the tools present on your machine — including their versions against the floors the project declares in engines, .nvmrc, requires-python, .python-version, go.mod, rust-toolchain, .tool-versions, the setup-node/setup-python/setup-go versions its CI actually tests on, and the FROM image of its Dockerfile, read by running `--version` on your own tools, never the project's code — so a documented-but-nonexistent command, or a Node two majors too old, is named before you lose an afternoon to it. Reads README, CONTRIBUTING and docs/ and cites file and line for every command. Lists the environment variables the code reads that no .env.example or doc admits to, split into the ones with no fallback (the process dies on first use) and the ones with a default. Names the floors that contradict each other (a .nvmrc pin an engines range rejects), a second committed lockfile with nothing choosing between them, relative doc links that point at files the tree does not have, and the files that exist in your checkout but git does not track — a stranger's clone will not have them. Ends with FIRST RUN, IN ORDER — toolchain, the install command the committed lockfile implies, env, run, test — so the brief is a sequence, not a list. Also reports stack and version floors, entry points, a layout map, risk flags (no lockfile, no tests, no CI, committed secret-shaped files), and an explicit list of what it could not determine. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
+ * description: Onboard to an unfamiliar repository, and check its setup instructions instead of trusting them. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. Cross-references every command the README tells you to run against what the project actually defines — package.json scripts, Make targets, justfile recipes, Cargo bins, go run/test paths, pyproject scripts, tox envs, nox sessions, Taskfile tasks, compose services, Dockerfiles, and npx binaries declared as dependencies — and against the tools present on your machine — including their versions against the floors the project declares in engines, .nvmrc, requires-python, .python-version, go.mod, rust-toolchain, .tool-versions, the setup-node/setup-python/setup-go versions its CI actually tests on, and the FROM image of its Dockerfile, read by running `--version` on your own tools, never the project's code — so a documented-but-nonexistent command, or a Node two majors too old, is named before you lose an afternoon to it. Reads README, CONTRIBUTING and docs/ and cites file and line for every command. Lists the environment variables the code reads that no .env.example or doc admits to, split into the ones with no fallback (the process dies on first use) and the ones with a default. Names the floors that contradict each other (a .nvmrc pin an engines range rejects), a second committed lockfile with nothing choosing between them, relative doc links that point at files the tree does not have, and the files that exist in your checkout but git does not track — a stranger's clone will not have them. Ends with FIRST RUN, IN ORDER — toolchain, the install command the committed lockfile implies, env, run, test — so the brief is a sequence, not a list. Also reports stack and version floors, the entry points the manifests declare (package.json main/bin/exports, pyproject scripts, Cargo [[bin]], Go cmd directories) with a MISSING mark when the file is gone, a layout map, risk flags (no lockfile, no tests, no CI, committed secret-shaped files), and an explicit list of what it could not determine. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
  * source: https://github.com/PugarHuda/rote-repo-onboarding-brief
  * tags:
  * - domain-code-analysis
@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.6.1
+ *   version: 0.7.0
  *   status: released
  *   kind: atomic
  *   flow_type: parallel
@@ -313,11 +313,23 @@ if (!probe) {
   // 4 -----------------------------------------------------------------
   lines.push("ENTRY POINTS");
   const entries = (probe["entry_candidates"] as string[]) ?? [];
+  const declaredEntries = (probe["entry_points"] as Dict[]) ?? [];
+  if (declaredEntries.length) {
+    lines.push("  Declared by the manifests (what the project says it starts from):");
+    for (const e of declaredEntries) {
+      const tag = e["exists"] === false ? "MISSING " : e["exists"] === true ? "        " : "        ";
+      lines.push(`  ${tag}${S(e["kind"]).padEnd(40)} ${S(e["target"])}`);
+    }
+    const gone = declaredEntries.filter((e) => e["exists"] === false);
+    if (gone.length) unclear.push(`${gone.length} declared entry point(s) point at files that do not exist — the manifest is stale.`);
+  }
   if (entries.length) {
-    for (const e of entries) lines.push(`  ${e}`);
-  } else {
-    lines.push("  No conventional entry point at the top level.");
-    unclear.push("Where execution starts — no conventional entry point at the top level.");
+    lines.push(declaredEntries.length ? "  Conventional files present:" : "  Conventional files present (nothing declared in a manifest):");
+    for (const e of entries) lines.push(`  ${" ".repeat(8)}${e}`);
+  }
+  if (!entries.length && !declaredEntries.length) {
+    lines.push("  No entry point declared in a manifest and no conventional file at the top level.");
+    unclear.push("Where execution starts — nothing declared and no conventional entry point at the top level.");
   }
   lines.push("");
 
@@ -383,6 +395,7 @@ if (!probe) {
     ecosystems: eco,
     lockfiles: locks,
     entry_points: entries,
+    declared_entry_points: declaredEntries,
     command_claims: claimList,
     docs_scanned: claims?.["docs_scanned"] ?? [],
     toolchain: tc,

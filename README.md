@@ -35,7 +35,8 @@ Those need opposite responses from a reader, so they are never merged into one s
 1. What this is — quoted from the manifest or the README, never guessed
 2. Stack — ecosystems, manifests, lockfiles, version floors, dependency counts
 3. How to run it — the command check above
-4. Entry points
+4. Entry points — what the manifests declare (`main`/`bin`/`exports`, `[project.scripts]`, Cargo
+   `[[bin]]`, `cmd/*/main.go`), each marked MISSING when the file is gone, then the conventional files
 5. Layout map
 6. Risk flags — no lockfile, no tests, no CI, committed secret-shaped files, no license
 7. **What is unclear** — an explicit list of what the brief could not determine
@@ -212,7 +213,8 @@ projects go to PyPI instead: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a `==`-
 `REQUIRES_PYTHON_CHANGED`; PyPI does not expose who uploaded a release, and the output says so
 rather than inventing a publisher. Rust projects go to crates.io from `Cargo.lock`, where the
 publisher of every version is public, so `PUBLISHER_CHANGED` works there too, plus
-`LOCKED_YANKED` and `MSRV_CHANGED`. Its only
+`LOCKED_YANKED` and `MSRV_CHANGED`. Go projects go to `proxy.golang.org` for the latest version and
+`deps.dev` for licenses from `go.mod`; Go modules carry no publisher identity, and that is stated. Its only
 network access is anonymous GETs to `registry.npmjs.org` and one POST to `api.osv.dev`. Source under
 `plays/dependency-trust-diff/`; the self-check runs fully offline against fixtures.
 
@@ -227,7 +229,7 @@ Dockerfile, a workflow, a Python service in `api/`, a Terraform module and three
 packages that the bot never updates, because every ecosystem and directory needs its own entry.
 This walks the tree for every manifest directory across 16 ecosystems, reads the `updates:`
 entries (directory, `directories` globs, interval, `open-pull-requests-limit`) and a renovate
-config when present, and reports **covered** (with cadence), **uncovered**, **version updates
+config when present (`enabledManagers` and `ignorePaths` honoured), and reports **covered** (with cadence), **uncovered**, **version updates
 disabled** (`open-pull-requests-limit: 0`), and **entries pointing at nothing**. Whether the bot is
 switched on in repository settings cannot be read from the file and is listed under NOT CHECKED.
 Source under `plays/dependabot-coverage/`; self-check runs offline.

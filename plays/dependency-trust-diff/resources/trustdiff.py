@@ -102,9 +102,14 @@ def locked_packages(root):
         return lf, pinned, direct, None
     if (root / "Cargo.toml").is_file():
         return None, None, None, "Cargo.toml without a Cargo.lock: nothing is pinned to compare"
+    lf, pinned, direct = go_locked(root)
+    if pinned:
+        return lf, pinned, direct, None
+    if (root / "go.mod").is_file():
+        return None, None, None, "go.mod without any require: nothing is pinned to compare"
     if (root / "pyproject.toml").is_file() or (root / "setup.py").is_file():
         return None, None, None, "Python project without a lock (uv.lock, poetry.lock, Pipfile.lock) or a ==-pinned requirements.txt: nothing is pinned to compare"
-    return None, None, None, "no package.json, pyproject.toml or Cargo.toml: not an npm, Python or Rust project"
+    return None, None, None, "no package.json, pyproject.toml, Cargo.toml or go.mod: not an npm, Python, Rust or Go project"
 
 
 PNPM_KEY = re.compile(r"^  ['\"]?/?(@?[^@'\"\s/]+(?:/[^@'\"\s/]+)?)@([^'\"(:\s]+)")   # v6/v9: name@1.2.3 or /name@1.2.3
@@ -347,7 +352,7 @@ def fetch_crate(name, version):
         p = Path(FIXTURE_DIR) / f"crates__{name}@{version}.json"
         return load_json(p) if p.is_file() else None
     url = f"{CRATES}/{urllib.parse.quote(name)}" if version == "latest" else f"{CRATES}/{urllib.parse.quote(name)}/{urllib.parse.quote(version)}"
-    req = urllib.request.Request(url, headers={"User-Agent": "dependency-trust-diff/0.7 (rote play; github.com/PugarHuda/rote-repo-onboarding-brief)"})
+    req = urllib.request.Request(url, headers={"User-Agent": "dependency-trust-diff/0.8 (rote play; github.com/PugarHuda/rote-repo-onboarding-brief)"})
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
             return json.loads(r.read().decode("utf-8", "replace"))
@@ -378,6 +383,85 @@ def summarize_crate(meta):
         "install_scripts": [],
         "provenance": None,
         "unpacked_size": v.get("crate_size") if isinstance(v.get("crate_size"), int) else None,
+        "file_count": None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Go: go.mod -> proxy.golang.org (latest version) + deps.dev (licenses). No auth.
+# Go modules have no publisher field anywhere public; that is stated, not faked.
+# ---------------------------------------------------------------------------
+GOPROXY = "https://proxy.golang.org"
+DEPSDEV = "https://api.deps.dev/v3/systems/GO/packages"
+
+
+def go_locked(root):
+    txt = (root / "go.mod").read_text(encoding="utf-8", errors="replace") if (root / "go.mod").is_file() else ""
+    if not txt:
+        return None, None, None
+    pinned, direct, in_block = {}, set(), False
+    for raw in txt.splitlines():
+        line = raw.split("//", 1)[0].strip()
+        indirect = "// indirect" in raw
+        if line.startswith("require ("):
+            in_block = True
+            continue
+        if in_block and line.startswith(")"):
+            in_block = False
+            continue
+        m = re.match(r"^(?:require\s+)?([A-Za-z0-9][A-Za-z0-9._/~-]*)\s+(v[0-9][^\s]*)$", line)
+        if m and (in_block or line.startswith("require ")):
+            mod, ver = m.group(1), m.group(2)
+            pinned[mod] = ver
+            if not indirect:
+                direct.add(mod)
+    return ("go.mod", pinned, direct) if pinned else (None, None, None)
+
+
+def _go_escape(path):
+    """Go module escaping for the proxy: uppercase letters become '!' + lowercase."""
+    return "".join("!" + c.lower() if c.isupper() else c for c in path)
+
+
+def fetch_go(name, version):
+    if FIXTURE_DIR:
+        p = Path(FIXTURE_DIR) / f"go__{name.replace('/', '__')}@{version}.json"
+        return load_json(p) if p.is_file() else None
+    ua = {"User-Agent": "dependency-trust-diff/0.8 (rote play)"}
+    try:
+        if version == "latest":
+            with urllib.request.urlopen(urllib.request.Request(f"{GOPROXY}/{_go_escape(name)}/@latest", headers=ua), timeout=20) as r:
+                version = json.loads(r.read().decode("utf-8", "replace")).get("Version")
+            if not version:
+                return None
+        url = f"{DEPSDEV}/{urllib.parse.quote(name, safe='')}/versions/{urllib.parse.quote(version, safe='')}"
+        with urllib.request.urlopen(urllib.request.Request(url, headers=ua), timeout=20) as r:
+            meta = json.loads(r.read().decode("utf-8", "replace"))
+        meta["_version"] = version
+        return meta
+    except Exception:
+        return None
+
+
+def summarize_go(meta):
+    if not isinstance(meta, dict):
+        return None
+    ver = meta.get("_version") or (meta.get("versionKey") or {}).get("version")
+    if not ver:
+        return None
+    lic = meta.get("licenses") or []
+    return {
+        "version": ver,
+        "publisher": None,  # Go modules carry no publisher identity; the proxy serves what the VCS tag says
+        "license": " AND ".join(lic) if lic else None,
+        "maintainers": [],
+        "deprecated": False,
+        "yanked": bool(meta.get("retracted")),
+        "requires_python": None,
+        "rust_version": None,
+        "install_scripts": [],
+        "provenance": None,
+        "unpacked_size": None,
         "file_count": None,
     }
 
@@ -444,6 +528,9 @@ def check(name, locked_version, ecosystem="npm"):
     elif ecosystem == "crates.io":
         have = summarize_crate(fetch_crate(name, locked_version))
         latest = summarize_crate(fetch_crate(name, "latest"))
+    elif ecosystem == "Go":
+        have = summarize_go(fetch_go(name, locked_version))
+        latest = summarize_go(fetch_go(name, "latest"))
     else:
         have = summarize(fetch_version(name, locked_version))
         latest = summarize(fetch_version(name, "latest"))
@@ -528,13 +615,13 @@ def audit(root, scope="direct", max_packages=200):
     if pinned is None:
         return {"root": str(root), "ok": False, "lockfile": lockfile, "reason": reason}
     ecosystem = ("PyPI" if lockfile in ("uv.lock", "poetry.lock", "Pipfile.lock") or lockfile.startswith("requirements")
-                 else "crates.io" if lockfile == "Cargo.lock" else "npm")
+                 else "crates.io" if lockfile == "Cargo.lock" else "Go" if lockfile == "go.mod" else "npm")
     names = sorted(pinned) if scope == "all" else sorted(n for n in pinned if n in direct)
     skipped = max(0, len(names) - max_packages)
     names = names[:max_packages]
     with ThreadPoolExecutor(max_workers=8) as ex:
         rows = list(ex.map(lambda n: check(n, pinned[n], ecosystem), names))
-    vulns, osv_note = osv_lookup([(n, pinned[n]) for n in names], ecosystem)
+    vulns, osv_note = osv_lookup([(n, pinned[n].lstrip("v") if ecosystem == "Go" else pinned[n]) for n in names], ecosystem)
     for r in rows:
         ids = vulns.get(r["name"])
         if ids:
@@ -550,7 +637,7 @@ def audit(root, scope="direct", max_packages=200):
         "root": str(root), "ok": True, "lockfile": lockfile, "ecosystem": ecosystem, "scope": scope,
         "pinned_total": len(pinned), "direct_total": len(direct),
         "checked": len(rows), "skipped_over_max": skipped,
-        "source": "fixtures" if FIXTURE_DIR else (PYPI if ecosystem == "PyPI" else CRATES if ecosystem == "crates.io" else REGISTRY),
+        "source": "fixtures" if FIXTURE_DIR else (PYPI if ecosystem == "PyPI" else CRATES if ecosystem == "crates.io" else GOPROXY + " + " + DEPSDEV if ecosystem == "Go" else REGISTRY),
         "osv": {"checked": osv_note is None, "vulnerable_packages": len(vulns), "note": osv_note},
         "counts": {k: len(v) for k, v in sorted(by.items())},
         "flagged": by.get("FLAGGED", []),
@@ -560,7 +647,9 @@ def audit(root, scope="direct", max_packages=200):
         "current": [r["name"] for r in by.get("CURRENT", [])],
         "not_checked": ([
             "who uploaded each PyPI release — PyPI's JSON API does not expose the uploader, so publisher changes cannot be seen here; license, yanked status, requires-python and OSV advisories can",
-        ] if ecosystem == "PyPI" else []) + [
+        ] if ecosystem == "PyPI" else [
+            "who published each Go module version — Go modules have no publisher identity; the proxy serves whatever the VCS tag says, so only license (deps.dev), retraction and OSV advisories are compared",
+        ] if ecosystem == "Go" else []) + [
             "PUBLISHER_CHANGED is the account that ran the publish (npm or crates.io); a handover to a CI token or a co-maintainer looks identical to a takeover",
             "whether the newer version's code changed behaviour — this reads metadata, never tarballs",
             "transitive packages unless scope=all; version ranges in package.json are ignored, only the lockfile pin counts",

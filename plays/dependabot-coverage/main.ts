@@ -3,7 +3,7 @@
  * @rote-frontmatter
  * ---
  * name: dependabot-coverage
- * description: Which package ecosystems in a repository does the update bot actually watch? Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. A dependabot.yml is written once for the root package.json and then the repository grows a Dockerfile, a GitHub Actions workflow, a Python service in api/, a Terraform module and three workspace packages — none of which the bot ever updates, because each ecosystem and directory needs its own entry. This walks the tree for every manifest directory (npm, pip, gomod, cargo, bundler, composer, maven, gradle, docker, github-actions, terraform, nuget, mix, pub, swift, devcontainers), reads the updates entries in .github/dependabot.yml — directory, directories globs, interval, open-pull-requests-limit — and a renovate config when present, and reports which ecosystem/directory pairs are covered and at what cadence, which are uncovered, which are matched only by an entry with open-pull-requests-limit 0 (security updates only, no version updates), and which entries point at directories that hold no manifest of that ecosystem any more. A coverage percentage closes it. What it cannot know is printed — whether Dependabot is switched on in the repository settings, private registry credentials, and manifests deeper than four directories. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
+ * description: Which package ecosystems in a repository does the update bot actually watch? Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. A dependabot.yml is written once for the root package.json and then the repository grows a Dockerfile, a GitHub Actions workflow, a Python service in api/, a Terraform module and three workspace packages — none of which the bot ever updates, because each ecosystem and directory needs its own entry. This walks the tree for every manifest directory (npm, pip, gomod, cargo, bundler, composer, maven, gradle, docker, github-actions, terraform, nuget, mix, pub, swift, devcontainers), reads the updates entries in .github/dependabot.yml — directory, directories globs, interval, open-pull-requests-limit — and a renovate config when present (enabledManagers and ignorePaths honoured), and reports which ecosystem/directory pairs are covered and at what cadence, which are uncovered, which are matched only by an entry with open-pull-requests-limit 0 (security updates only, no version updates), and which entries point at directories that hold no manifest of that ecosystem any more. A coverage percentage closes it. What it cannot know is printed — whether Dependabot is switched on in the repository settings, private registry credentials, and manifests deeper than four directories. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
  * source: https://github.com/PugarHuda/rote-repo-onboarding-brief
  * tags:
  * - domain-supply-chain
@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.1.2
+ *   version: 0.2.0
  *   status: released
  *   kind: atomic
  *   flow_type: sequential

@@ -266,6 +266,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
         assert fl["tokio"] == ["LOCKED_YANKED"], fl
 
 
+def test_go_mod_goes_to_proxy_and_depsdev():
+    with tempfile.TemporaryDirectory() as t:
+        r, fx = Path(t) / "repo", Path(t) / "fx"
+        r.mkdir(); fx.mkdir()
+        (r / "go.mod").write_text("module example.com/app\n\ngo 1.22\n\nrequire (\n\tgithub.com/spf13/cobra v1.8.0\n\tgolang.org/x/text v0.14.0 // indirect\n)\n\nrequire github.com/cli/go-gh/v2 v2.9.0\n")
+        def goj(ver, lic, retracted=False):
+            return {"_version": ver, "versionKey": {"version": ver}, "licenses": [lic], "retracted": retracted}
+        (fx / "go__github.com__spf13__cobra@v1.8.0.json").write_text(json.dumps(goj("v1.8.0", "Apache-2.0")))
+        (fx / "go__github.com__spf13__cobra@latest.json").write_text(json.dumps(goj("v1.9.1", "MIT")))
+        (fx / "go__github.com__cli__go-gh__v2@v2.9.0.json").write_text(json.dumps(goj("v2.9.0", "MIT", retracted=True)))
+        (fx / "go__github.com__cli__go-gh__v2@latest.json").write_text(json.dumps(goj("v2.9.0", "MIT")))
+        (fx / "osv.json").write_text(json.dumps({"github.com/spf13/cobra@1.8.0": ["GO-2024-0001"]}))
+        d = run(r, fx)
+        assert d["ok"] and d["lockfile"] == "go.mod" and d["ecosystem"] == "Go"
+        assert d["pinned_total"] == 3 and d["checked"] == 2  # x/text is indirect
+        fl = {f["name"]: f["findings"] for f in d["flagged"]}
+        assert fl["github.com/spf13/cobra"] == ["KNOWN_VULNERABILITY", "LICENSE_CHANGED"], fl
+        assert fl["github.com/cli/go-gh/v2"] == ["LOCKED_YANKED"], fl
+        assert any("no publisher identity" in n for n in d["not_checked"])
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

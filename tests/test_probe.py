@@ -112,6 +112,22 @@ def test_local_only_files_are_named_as_a_stranger_trap():
         assert lof["count"] == 2 and sorted(lof["sample"]) == [".env", "helper.sh"] and lof["secret_shaped"] == [".env"], lof
 
 
+def test_declared_entry_points_and_missing_targets():
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        (r / "package.json").write_text(json.dumps({"name": "x", "main": "dist/index.js", "bin": {"x": "bin/x.js"}, "scripts": {"start": "node dist/index.js"}}))
+        (r / "bin").mkdir(); (r / "bin" / "x.js").write_text("")
+        (r / "pyproject.toml").write_text('[project]\nname = "p"\n[project.scripts]\np = "p.cli:main"\n')
+        (r / "p").mkdir(); (r / "p" / "cli.py").write_text("")
+        (r / "cmd" / "server").mkdir(parents=True); (r / "cmd" / "server" / "main.go").write_text("package main")
+        d = json.loads(subprocess.run([sys.executable, str(HERE / "probe.py"), str(r)], capture_output=True, text=True, timeout=60).stdout)
+        ep = {e["kind"]: e for e in d["entry_points"]}
+        assert ep["package.json main"]["exists"] is False          # dist/ not built -> MISSING
+        assert ep["package.json bin x"]["exists"] is True
+        assert ep["pyproject [project.scripts] p"]["exists"] is True
+        assert ep["go cmd"]["target"] == "cmd/server/main.go"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

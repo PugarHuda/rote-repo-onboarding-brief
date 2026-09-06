@@ -95,6 +95,17 @@ def test_four_space_indentation_and_tabs_parse_too():
         assert {c["interval"] for c in d["covered"]} == {"daily"}
 
 
+def test_renovate_ignore_paths_exclude_directories():
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        touch(r, "package.json", "examples/demo/package.json", "packages/ui/package.json")
+        (r / "renovate.json").write_text(json.dumps({"ignorePaths": ["**/examples/**"]}))
+        d = run(r)
+        cov = sorted(c["directory"] for c in d["covered"]); unc = {u["directory"]: u["why"] for u in d["uncovered"]}
+        assert cov == ["/", "/packages/ui"], cov
+        assert "/examples/demo" in unc and "ignorePaths" in unc["/examples/demo"], unc
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

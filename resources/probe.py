@@ -163,6 +163,57 @@ def structure(root, max_entries=40):
     return out
 
 
+def declared_entry_points(root):
+    """Entry points the manifests declare, with the file that declares them. These are
+    what the project says it starts from, which beats guessing by filename."""
+    out = []
+    try:
+        pkg = json.loads(read_text(root / "package.json"))
+        for k in ("main", "module", "exports"):
+            v = pkg.get(k)
+            if isinstance(v, str):
+                out.append({"kind": f"package.json {k}", "target": v, "exists": (root / v).exists()})
+        b = pkg.get("bin")
+        if isinstance(b, str):
+            out.append({"kind": "package.json bin", "target": b, "exists": (root / b).exists()})
+        elif isinstance(b, dict):
+            for name, path in list(b.items())[:10]:
+                out.append({"kind": f"package.json bin {name}", "target": str(path), "exists": (root / str(path)).exists()})
+        for name in ("start", "dev"):
+            if name in (pkg.get("scripts") or {}):
+                out.append({"kind": f"package.json scripts.{name}", "target": pkg["scripts"][name], "exists": None})
+    except Exception:
+        pass
+    try:
+        t = tomllib.loads(read_text(root / "pyproject.toml"))
+        for name, target in list(((t.get("project") or {}).get("scripts") or {}).items())[:10]:
+            mod = str(target).split(":")[0].replace(".", "/")
+            exists = (root / f"{mod}.py").exists() or (root / mod).is_dir() or (root / "src" / f"{mod}.py").exists() or (root / "src" / mod).is_dir()
+            out.append({"kind": f"pyproject [project.scripts] {name}", "target": str(target), "exists": exists})
+        for name, target in list((((t.get("tool") or {}).get("poetry") or {}).get("scripts") or {}).items())[:10]:
+            out.append({"kind": f"pyproject [tool.poetry.scripts] {name}", "target": str(target), "exists": None})
+    except Exception:
+        pass
+    try:
+        c = tomllib.loads(read_text(root / "Cargo.toml"))
+        for b in (c.get("bin") or [])[:10]:
+            if isinstance(b, dict) and b.get("name"):
+                path = b.get("path") or f"src/bin/{b['name']}.rs"
+                out.append({"kind": f"Cargo [[bin]] {b['name']}", "target": path, "exists": (root / path).exists()})
+        if (root / "src" / "main.rs").exists() and (c.get("package") or {}).get("name"):
+            out.append({"kind": f"Cargo package {c['package']['name']}", "target": "src/main.rs", "exists": True})
+    except Exception:
+        pass
+    cmd = root / "cmd"
+    if cmd.is_dir():
+        for d in sorted(p for p in cmd.iterdir() if p.is_dir())[:12]:
+            if (d / "main.go").exists():
+                out.append({"kind": "go cmd", "target": f"cmd/{d.name}/main.go", "exists": True})
+    if (root / "main.go").exists():
+        out.append({"kind": "go main package", "target": "main.go", "exists": True})
+    return out[:25]
+
+
 def main():
     # argv may arrive from a step's stdout, so trim stray whitespace/newlines.
     root = Path(sys.argv[1].strip()).resolve()
@@ -213,6 +264,7 @@ def main():
 
     facts["test_dirs"] = [t for t in TEST_HINTS if (root / t).is_dir()]
     facts["entry_candidates"] = [e for e in ENTRY_HINTS if (root / e).exists()]
+    facts["entry_points"] = declared_entry_points(root)
     facts["structure"] = structure(root)
     facts["committed_secret_files"] = [s for s in SECRET_FILES if (root / s).exists()]
     # A local checkout carries files git does not track (.env, build output, a

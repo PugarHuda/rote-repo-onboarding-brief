@@ -145,6 +145,19 @@ RENOVATE_MANAGER = {"npm": "npm", "pip": "pip_requirements", "gomod": "gomod", "
                     "github-actions": "github-actions", "terraform": "terraform", "nuget": "nuget", "mix": "mix", "pub": "pub"}
 
 
+def renovate_ignores(glob, directory, manifests):
+    """Does a renovate ignorePaths glob (e.g. **/examples/**, **/test/**) swallow this manifest dir?"""
+    rel = directory.strip("/")
+    for name in manifests:
+        path = f"{rel}/{name}" if rel else name
+        g = glob.strip("/")
+        # fnmatch has no `**`; translate the two shapes renovate uses
+        pat = g.replace("**/", "*/").replace("/**", "/*")
+        if fnmatch.fnmatch(path, pat) or fnmatch.fnmatch(path, g) or (g.endswith("/**") and (rel + "/").startswith(g[:-3].rstrip("*") + "/")) or any(seg == g.strip("*/") for seg in rel.split("/")):
+            return True
+    return False
+
+
 def dir_matches(entry_dirs, d):
     for ed in entry_dirs:
         ed = "/" + ed.strip("/") if ed.strip("/") else "/"
@@ -175,7 +188,11 @@ def audit(root):
                 covered.append(row)
         elif renovate and renovate.get("readable") and renovate.get("enabled", True):
             managers = renovate.get("enabled_managers")
-            if managers is None or RENOVATE_MANAGER.get(eco) in managers:
+            ignored = [g for g in (renovate.get("ignore_paths") or []) if renovate_ignores(g, d, names)]
+            if ignored:
+                row["why"] = f"renovate ignorePaths excludes it ({ignored[0]})"
+                uncovered.append(row)
+            elif managers is None or RENOVATE_MANAGER.get(eco) in managers:
                 row["interval"] = "renovate"
                 covered.append(row)
             else:
