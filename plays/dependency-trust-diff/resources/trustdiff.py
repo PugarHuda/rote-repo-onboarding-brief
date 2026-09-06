@@ -94,7 +94,12 @@ def locked_packages(root):
                                   "npm-shrinkwrap.json, pnpm-lock.yaml and yarn.lock")
     if (root / "package.json").is_file():
         return None, None, None, "package.json without a lockfile: nothing is pinned, so there is no locked version to compare"
-    return None, None, None, "no package.json: not an npm project"
+    lf, pinned, direct = python_locked(root)
+    if pinned:
+        return lf, pinned, direct, None
+    if (root / "pyproject.toml").is_file() or (root / "setup.py").is_file():
+        return None, None, None, "Python project without a lock (uv.lock, poetry.lock, Pipfile.lock) or a ==-pinned requirements.txt: nothing is pinned to compare"
+    return None, None, None, "no package.json or pyproject.toml: not an npm or Python project"
 
 
 PNPM_KEY = re.compile(r"^  ['\"]?/?(@?[^@'\"\s/]+(?:/[^@'\"\s/]+)?)@([^'\"(:\s]+)")   # v6/v9: name@1.2.3 or /name@1.2.3
@@ -168,6 +173,137 @@ def read_yarn_lock(text):
     return pinned
 
 
+# ---------------------------------------------------------------------------
+# Python: uv.lock, poetry.lock, Pipfile.lock, requirements.txt -> PyPI
+# ---------------------------------------------------------------------------
+def _toml(path):
+    try:
+        import tomllib
+        return tomllib.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return None
+
+
+def _norm_py(name):
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def python_locked(root):
+    """(lockfile, {name: version}, direct_names) for a Python project, or (None, None, None)."""
+    pj = _toml(root / "pyproject.toml") or {}
+    direct = set()
+    for spec in (pj.get("project") or {}).get("dependencies", []) or []:
+        m = re.match(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)", spec)
+        if m:
+            direct.add(_norm_py(m.group(1)))
+    for grp in ((pj.get("project") or {}).get("optional-dependencies") or {}).values():
+        for spec in grp or []:
+            m = re.match(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)", spec)
+            if m:
+                direct.add(_norm_py(m.group(1)))
+    poetry = ((pj.get("tool") or {}).get("poetry") or {})
+    for k in ("dependencies", "dev-dependencies"):
+        direct.update(_norm_py(n) for n in (poetry.get(k) or {}) if n.lower() != "python")
+    for grp in (poetry.get("group") or {}).values():
+        direct.update(_norm_py(n) for n in ((grp or {}).get("dependencies") or {}))
+    dev = ((pj.get("dependency-groups") or {}))
+    for grp in dev.values():
+        for spec in grp or []:
+            if isinstance(spec, str):
+                m = re.match(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)", spec)
+                if m:
+                    direct.add(_norm_py(m.group(1)))
+
+    uv = _toml(root / "uv.lock") if (root / "uv.lock").is_file() else None
+    if uv and isinstance(uv.get("package"), list):
+        pinned = {}
+        for pkg in uv["package"]:
+            src = pkg.get("source") or {}
+            if not isinstance(pkg, dict) or not pkg.get("name") or not pkg.get("version"):
+                continue
+            if src.get("editable") or src.get("virtual"):
+                for d in (pkg.get("metadata") or {}).get("requires-dist", []) or []:
+                    if isinstance(d, dict) and d.get("name"):
+                        direct.add(_norm_py(d["name"]))
+                continue
+            if "registry" in src or not src:
+                pinned[_norm_py(pkg["name"])] = str(pkg["version"])
+        if pinned:
+            return "uv.lock", pinned, direct
+    po = _toml(root / "poetry.lock") if (root / "poetry.lock").is_file() else None
+    if po and isinstance(po.get("package"), list):
+        pinned = {_norm_py(x["name"]): str(x["version"]) for x in po["package"]
+                  if isinstance(x, dict) and x.get("name") and x.get("version") and not (x.get("source") or {}).get("type") in ("git", "directory", "file", "url")}
+        if pinned:
+            return "poetry.lock", pinned, direct
+    if (root / "Pipfile.lock").is_file():
+        try:
+            pl = json.loads((root / "Pipfile.lock").read_text(encoding="utf-8", errors="replace"))
+            pinned = {}
+            for sect in ("default", "develop"):
+                for n, meta in (pl.get(sect) or {}).items():
+                    v = (meta or {}).get("version", "")
+                    if isinstance(v, str) and v.startswith("=="):
+                        pinned[_norm_py(n)] = v[2:]
+                        direct.add(_norm_py(n))
+            if pinned:
+                return "Pipfile.lock", pinned, direct
+        except Exception:
+            pass
+    for req in ("requirements.txt", "requirements/base.txt", "requirements-dev.txt"):
+        if (root / req).is_file():
+            pinned = {}
+            for line in (root / req).read_text(encoding="utf-8", errors="replace").splitlines():
+                line = line.split("#", 1)[0].strip()
+                m = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*==\s*([0-9][^\s;]*)", line)
+                if m:
+                    pinned[_norm_py(m.group(1))] = m.group(2)
+            if pinned:
+                direct.update(pinned.keys())
+                return req, pinned, direct
+    return None, None, None
+
+
+PYPI = "https://pypi.org/pypi"
+
+
+def fetch_pypi(name, version):
+    if FIXTURE_DIR:
+        p = Path(FIXTURE_DIR) / f"pypi__{name}@{version}.json"
+        return load_json(p) if p.is_file() else None
+    url = f"{PYPI}/{urllib.parse.quote(name)}/json" if version == "latest" else f"{PYPI}/{urllib.parse.quote(name)}/{urllib.parse.quote(version)}/json"
+    req = urllib.request.Request(url, headers={"User-Agent": "dependency-trust-diff/0.6 (rote play)"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read().decode("utf-8", "replace"))
+    except Exception:
+        return None
+
+
+def summarize_pypi(meta):
+    if not isinstance(meta, dict) or not isinstance(meta.get("info"), dict):
+        return None
+    info = meta["info"]
+    lic = info.get("license_expression") or info.get("license")
+    if not lic or len(str(lic)) > 60:
+        cls = [c for c in (info.get("classifiers") or []) if c.startswith("License ::")]
+        lic = cls[-1].split("::")[-1].strip() if cls else (lic[:60] + "…" if lic else None)
+    people = [x for x in (info.get("author"), info.get("maintainer")) if x]
+    return {
+        "version": info.get("version"),
+        "publisher": None,  # PyPI's JSON API does not expose who uploaded a release
+        "license": str(lic).strip() if lic else None,
+        "maintainers": people[:8],
+        "deprecated": False,
+        "yanked": bool(info.get("yanked")),
+        "requires_python": info.get("requires_python"),
+        "install_scripts": [],
+        "provenance": None,
+        "unpacked_size": None,
+        "file_count": None,
+    }
+
+
 def norm_license(v):
     if v is None:
         return None
@@ -223,18 +359,27 @@ def summarize(meta):
     }
 
 
-def check(name, locked_version):
-    have = summarize(fetch_version(name, locked_version))
-    latest = summarize(fetch_version(name, "latest"))
+def check(name, locked_version, ecosystem="npm"):
+    if ecosystem == "PyPI":
+        have = summarize_pypi(fetch_pypi(name, locked_version))
+        latest = summarize_pypi(fetch_pypi(name, "latest"))
+    else:
+        have = summarize(fetch_version(name, locked_version))
+        latest = summarize(fetch_version(name, "latest"))
     row = {"name": name, "locked": locked_version, "have": have, "latest": latest, "findings": []}
     if have is None or latest is None:
         row["status"] = "UNCHECKED"
         row["why"] = ("registry did not answer for the locked version" if have is None
                       else "registry did not answer for `latest`")
         return row
+    if have.get("yanked"):
+        # The release you pinned was withdrawn by its maintainers; installs may still succeed.
+        row["findings"].append("LOCKED_YANKED")
     if have["version"] == latest["version"]:
-        row["status"] = "CURRENT"
+        row["status"] = "FLAGGED" if row["findings"] else "CURRENT"
         return row
+    if have.get("requires_python") and latest.get("requires_python") and have["requires_python"] != latest["requires_python"]:
+        row["findings"].append("REQUIRES_PYTHON_CHANGED")
     if have["publisher"] and latest["publisher"] and have["publisher"] != latest["publisher"]:
         row["findings"].append("PUBLISHER_CHANGED")
     if have["license"] != latest["license"]:
@@ -262,7 +407,7 @@ OSV = "https://api.osv.dev/v1/querybatch"
 OSV_FIXTURE = os.environ.get("TRUSTDIFF_OSV_FIXTURE")
 
 
-def osv_lookup(pairs):
+def osv_lookup(pairs, ecosystem="npm"):
     """Known vulnerabilities for the exact versions you have, from OSV's public batch API.
 
     Returns ({name: [ids]}, note). A failed call returns ({}, reason) and every
@@ -279,9 +424,9 @@ def osv_lookup(pairs):
     found = {}
     for start in range(0, len(pairs), 1000):  # OSV caps a batch at 1000 queries
         chunk = pairs[start:start + 1000]
-        body = json.dumps({"queries": [{"package": {"name": n, "ecosystem": "npm"}, "version": v} for n, v in chunk]}).encode()
+        body = json.dumps({"queries": [{"package": {"name": n, "ecosystem": ecosystem}, "version": v} for n, v in chunk]}).encode()
         req = urllib.request.Request(OSV, data=body, headers={
-            "Content-Type": "application/json", "User-Agent": "dependency-trust-diff/0.5 (rote play)"})
+            "Content-Type": "application/json", "User-Agent": "dependency-trust-diff/0.6 (rote play)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 results = json.loads(r.read().decode("utf-8", "replace")).get("results", [])
@@ -299,12 +444,13 @@ def audit(root, scope="direct", max_packages=200):
     lockfile, pinned, direct, reason = locked_packages(root)
     if pinned is None:
         return {"root": str(root), "ok": False, "lockfile": lockfile, "reason": reason}
+    ecosystem = "PyPI" if lockfile in ("uv.lock", "poetry.lock", "Pipfile.lock") or lockfile.startswith("requirements") else "npm"
     names = sorted(pinned) if scope == "all" else sorted(n for n in pinned if n in direct)
     skipped = max(0, len(names) - max_packages)
     names = names[:max_packages]
     with ThreadPoolExecutor(max_workers=8) as ex:
-        rows = list(ex.map(lambda n: check(n, pinned[n]), names))
-    vulns, osv_note = osv_lookup([(n, pinned[n]) for n in names])
+        rows = list(ex.map(lambda n: check(n, pinned[n], ecosystem), names))
+    vulns, osv_note = osv_lookup([(n, pinned[n]) for n in names], ecosystem)
     for r in rows:
         ids = vulns.get(r["name"])
         if ids:
@@ -317,10 +463,10 @@ def audit(root, scope="direct", max_packages=200):
     for r in rows:
         by.setdefault(r["status"], []).append(r)
     return {
-        "root": str(root), "ok": True, "lockfile": lockfile, "scope": scope,
+        "root": str(root), "ok": True, "lockfile": lockfile, "ecosystem": ecosystem, "scope": scope,
         "pinned_total": len(pinned), "direct_total": len(direct),
         "checked": len(rows), "skipped_over_max": skipped,
-        "source": "fixtures" if FIXTURE_DIR else REGISTRY,
+        "source": "fixtures" if FIXTURE_DIR else (PYPI if ecosystem == "PyPI" else REGISTRY),
         "osv": {"checked": osv_note is None, "vulnerable_packages": len(vulns), "note": osv_note},
         "counts": {k: len(v) for k, v in sorted(by.items())},
         "flagged": by.get("FLAGGED", []),
@@ -328,7 +474,9 @@ def audit(root, scope="direct", max_packages=200):
         "behind": [{"name": r["name"], "locked": r["locked"], "latest": r["latest"]["version"]}
                    for r in by.get("BEHIND", [])],
         "current": [r["name"] for r in by.get("CURRENT", [])],
-        "not_checked": [
+        "not_checked": ([
+            "who uploaded each PyPI release — PyPI's JSON API does not expose the uploader, so publisher changes cannot be seen here; license, yanked status, requires-python and OSV advisories can",
+        ] if ecosystem == "PyPI" else []) + [
             "PUBLISHER_CHANGED is the account that ran `npm publish`; a handover to a CI token or a co-maintainer looks identical to a takeover",
             "whether the newer version's code changed behaviour — this reads metadata, never tarballs",
             "transitive packages unless scope=all; version ranges in package.json are ignored, only the lockfile pin counts",

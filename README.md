@@ -204,7 +204,11 @@ case the output tells you to look at rather than assume. It reads registry metad
 pnpm, yarn and bun lockfiles are named as unsupported rather than silently skipped.
 
 Reads `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml` (v5 to v9) and `yarn.lock`
-(classic and berry), so vue, vite, next and babel are in scope, not just npm projects. Its only
+(classic and berry), so vue, vite, next and babel are in scope, not just npm projects. Python
+projects go to PyPI instead: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a `==`-pinned
+`requirements.txt`, with `LOCKED_YANKED` (the release you pinned was withdrawn) and
+`REQUIRES_PYTHON_CHANGED`; PyPI does not expose who uploaded a release, and the output says so
+rather than inventing a publisher. Its only
 network access is anonymous GETs to `registry.npmjs.org` and one POST to `api.osv.dev`. Source under
 `plays/dependency-trust-diff/`; the self-check runs fully offline against fixtures.
 

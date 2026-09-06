@@ -167,6 +167,61 @@ packages:
         assert d["pinned_total"] == 3 and sorted(d["current"]) == ["vitest", "vue"], d
 
 
+def pypi_meta(version, license, requires_python=">=3.9", yanked=False, author="a"):
+    return {"info": {"version": version, "license": license, "requires_python": requires_python, "yanked": yanked, "author": author, "classifiers": []}}
+
+
+def test_python_lockfiles_go_to_pypi():
+    with tempfile.TemporaryDirectory() as t:
+        r, fx = Path(t) / "repo", Path(t) / "fx"
+        r.mkdir(); fx.mkdir()
+        (r / "pyproject.toml").write_text('[project]\nname = "app"\nversion = "0.1"\ndependencies = ["requests>=2", "Flask_Login>=0.6"]\n')
+        (r / "uv.lock").write_text('''version = 1
+[[package]]
+name = "app"
+version = "0.1"
+source = { editable = "." }
+[package.metadata]
+requires-dist = [{ name = "requests", specifier = ">=2" }, { name = "flask-login", specifier = ">=0.6" }]
+
+[[package]]
+name = "requests"
+version = "2.31.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "flask-login"
+version = "0.6.3"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "certifi"
+version = "2024.2.2"
+source = { registry = "https://pypi.org/simple" }
+''')
+        (fx / "pypi__requests@2.31.0.json").write_text(json.dumps(pypi_meta("2.31.0", "Apache 2.0", ">=3.7", yanked=True)))
+        (fx / "pypi__requests@latest.json").write_text(json.dumps(pypi_meta("2.32.3", "Apache-2.0", ">=3.8")))
+        (fx / "pypi__flask-login@0.6.3.json").write_text(json.dumps(pypi_meta("0.6.3", "MIT")))
+        (fx / "pypi__flask-login@latest.json").write_text(json.dumps(pypi_meta("0.6.3", "MIT")))
+        (fx / "osv.json").write_text(json.dumps({"requests@2.31.0": ["GHSA-9wx4-h78v-vm56"]}))
+        d = run(r, fx)
+        assert d["ok"] and d["lockfile"] == "uv.lock" and d["ecosystem"] == "PyPI"
+        assert d["pinned_total"] == 3 and d["checked"] == 2   # certifi is transitive
+        fl = {f["name"]: f["findings"] for f in d["flagged"]}
+        assert fl["requests"] == ["KNOWN_VULNERABILITY", "LOCKED_YANKED", "REQUIRES_PYTHON_CHANGED", "LICENSE_CHANGED"], fl
+        assert d["current"] == ["flask-login"]
+        assert any("uploader" in n for n in d["not_checked"])
+        # requirements.txt with == pins, no lock
+        (r / "uv.lock").unlink(); (r / "pyproject.toml").unlink()
+        (r / "requirements.txt").write_text("requests==2.31.0  # http\nFlask-Login[extra]==0.6.3\n-e .\n")
+        d = run(r, fx)
+        assert d["lockfile"] == "requirements.txt" and d["checked"] == 2
+        # a Python project with nothing pinned says so
+        (r / "requirements.txt").write_text("requests>=2\n"); (r / "pyproject.toml").write_text("[project]\nname='x'\n")
+        d = run(r, fx)
+        assert d["ok"] is False and "nothing is pinned" in d["reason"]
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
