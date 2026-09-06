@@ -187,15 +187,23 @@ def unlisted_packages(root, member_dirs, max_depth=3):
 
 
 def pipeline_coverage(root, members, dirs):
-    """turbo.json (v2 `tasks`, v1 `pipeline`) names tasks every package is expected to run.
-    A package without that script is silently skipped by turbo; list them per task."""
+    """turbo.json (v2 `tasks`, v1 `pipeline`) or nx.json (`targetDefaults`) names tasks every
+    package is expected to run. A package without that script is skipped silently; list them."""
     turbo = load_json(root / "turbo.json")
-    if not isinstance(turbo, dict):
+    nx = load_json(root / "nx.json") if not isinstance(turbo, dict) else None
+    if isinstance(turbo, dict):
+        tasks = turbo.get("tasks") if isinstance(turbo.get("tasks"), dict) else turbo.get("pipeline")
+        pipeline_file = "turbo.json"
+    elif isinstance(nx, dict):
+        tasks = nx.get("targetDefaults")
+        pipeline_file = "nx.json"
+    else:
         return None
-    tasks = turbo.get("tasks") if isinstance(turbo.get("tasks"), dict) else turbo.get("pipeline")
     if not isinstance(tasks, dict):
         return None
-    names = sorted({t.split("#", 1)[-1] for t in tasks if not t.startswith("//")})[:12]
+    # plain task names only: nx also keys executors (@nx/jest:jest) and glob patterns (e2e-ci--**/*)
+    names = sorted({t.split("#", 1)[-1] for t in tasks
+                    if not t.startswith("//") and re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", t.split("#", 1)[-1])})[:12]
     scripts_by = {}
     for d, m in zip(dirs, members):
         pkg = load_json(d / "package.json") or {}
@@ -205,7 +213,7 @@ def pipeline_coverage(root, members, dirs):
         missing = sorted(n for n, sc in scripts_by.items() if t not in sc)
         out.append({"task": t, "packages_with_script": len(scripts_by) - len(missing),
                     "packages_without": missing[:25], "without_count": len(missing)})
-    return {"file": "turbo.json", "tasks": out}
+    return {"file": pipeline_file, "tasks": out}
 
 
 def find_cycles(edges, names):

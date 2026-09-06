@@ -200,6 +200,28 @@ def test_floor_conflicts_lockfile_conflict_and_broken_doc_links():
         assert dl["checked"] == 3 and [b["target"] for b in dl["broken"]] == ["docs/missing.md", "assets/logo.png"]
 
 
+def test_ci_and_dockerfile_floors_join_the_contradiction_check():
+    import os
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        (r / "package.json").write_text(json.dumps({"engines": {"node": ">=20"}}))
+        (r / ".github" / "workflows").mkdir(parents=True)
+        (r / ".github" / "workflows" / "ci.yml").write_text("jobs:\n  test:\n    strategy:\n      matrix:\n        node-version: [18, 20]\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ matrix.node-version }}\n")
+        (r / "Dockerfile").write_text("FROM node:18-alpine\n")
+        (r / "README.md").write_text("")
+        fx = r / "v.json"; fx.write_text(json.dumps({"node": "20.1.0"}))
+        env = dict(os.environ, CLAIMS_TOOL_VERSIONS=str(fx))
+        p = subprocess.run([sys.executable, str(HERE / "claims.py"), str(r)], capture_output=True, text=True, timeout=60, env=env)
+        d = json.loads(p.stdout)
+        srcs = sorted((x["source"], x["declared"]) for x in d["toolchain"])
+        # the matrix collapses to its lowest version, one row per workflow
+        assert ("ci: ci.yml (tests 2 versions, 18.x to 20.x)", "18.x") in srcs and ("Dockerfile FROM", "18.x") in srcs, srcs
+        assert len([x for x in d["toolchain"] if x["source"].startswith("ci:")]) == 1
+        conflicts = {(c["a"], c["b"]) for c in d["floor_conflicts"]}
+        assert ("ci: ci.yml (tests 2 versions, 18.x to 20.x) says 18.x", "package.json engines.node says >=20") in conflicts, conflicts
+        assert ("Dockerfile FROM says 18.x", "package.json engines.node says >=20") in conflicts, conflicts
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

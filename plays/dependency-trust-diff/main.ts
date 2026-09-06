@@ -3,7 +3,7 @@
  * @rote-frontmatter
  * ---
  * name: dependency-trust-diff
- * description: For every npm dependency your lockfile pins, compare the version you actually have with the newest version on the public registry and report the two things a version number hides — the account that published it changed, and the license changed. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. A package name stays the same through a maintainer handover, a sold project, or a takeover, so the name is not the supply-chain trust anchor; the publishing account and the license are, and neither appears in `npm outdated` or a lockfile diff. Reads package-lock.json, npm-shrinkwrap.json, pnpm-lock.yaml (v5 to v9) and yarn.lock (classic and berry), and for Python projects uv.lock, poetry.lock, Pipfile.lock or a ==-pinned requirements.txt — direct dependencies by default, scope=all for the whole tree — asks registry.npmjs.org or pypi.org for the locked version and for `latest`, and reports each package as CURRENT, BEHIND, FLAGGED (PUBLISHER_CHANGED, LICENSE_CHANGED, MAINTAINERS_REPLACED, LATEST_DEPRECATED, INSTALL_SCRIPT_ADDED when the newer version gains a preinstall/install/postinstall hook, PROVENANCE_DROPPED when the version you have carries a Sigstore build attestation and the newer one does not, SIZE_JUMP when the unpacked tarball at least triples, LOCKED_YANKED when the PyPI release you pinned was withdrawn, REQUIRES_PYTHON_CHANGED) or UNCHECKED when the registry did not answer — a fetch failure is never reported as "same". Every checked version is also queried against osv.dev (npm or PyPI ecosystem) in one batch call, so a KNOWN_VULNERABILITY against the exact version you have is reported first, and an OSV outage is printed as not checked rather than as clean. It says what it cannot know — a publisher change is the account that ran `npm publish`, so a handover to a CI token looks identical to a takeover and is a signal to look at, not a verdict; it reads metadata, never tarballs, so behaviour changes are out of scope; a bun lockfile is named as unsupported rather than silently skipped. Its only network access is anonymous GETs to registry.npmjs.org or pypi.org and one anonymous POST to api.osv.dev. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
+ * description: For every npm dependency your lockfile pins, compare the version you actually have with the newest version on the public registry and report the two things a version number hides — the account that published it changed, and the license changed. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. A package name stays the same through a maintainer handover, a sold project, or a takeover, so the name is not the supply-chain trust anchor; the publishing account and the license are, and neither appears in `npm outdated` or a lockfile diff. Reads package-lock.json, npm-shrinkwrap.json, pnpm-lock.yaml (v5 to v9) and yarn.lock (classic and berry), for Python projects uv.lock, poetry.lock, Pipfile.lock or a ==-pinned requirements.txt, and for Rust projects Cargo.lock — direct dependencies by default, scope=all for the whole tree — asks registry.npmjs.org, pypi.org or crates.io for the locked version and for `latest`, and reports each package as CURRENT, BEHIND, FLAGGED (PUBLISHER_CHANGED, LICENSE_CHANGED, MAINTAINERS_REPLACED, LATEST_DEPRECATED, INSTALL_SCRIPT_ADDED when the newer version gains a preinstall/install/postinstall hook, PROVENANCE_DROPPED when the version you have carries a Sigstore build attestation and the newer one does not, SIZE_JUMP when the unpacked tarball at least triples, LOCKED_YANKED when the PyPI or crates.io release you pinned was withdrawn, REQUIRES_PYTHON_CHANGED, MSRV_CHANGED) or UNCHECKED when the registry did not answer — a fetch failure is never reported as "same". Every checked version is also queried against osv.dev (npm, PyPI or crates.io ecosystem) in one batch call, so a KNOWN_VULNERABILITY against the exact version you have is reported first, and an OSV outage is printed as not checked rather than as clean. It says what it cannot know — a publisher change is the account that ran `npm publish`, so a handover to a CI token looks identical to a takeover and is a signal to look at, not a verdict; it reads metadata, never tarballs, so behaviour changes are out of scope; a bun lockfile is named as unsupported rather than silently skipped. Its only network access is anonymous GETs to registry.npmjs.org, pypi.org or crates.io and one anonymous POST to api.osv.dev. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
  * source: https://github.com/PugarHuda/rote-repo-onboarding-brief
  * tags:
  * - domain-supply-chain
@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.6.0
+ *   version: 0.7.0
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
@@ -37,7 +37,7 @@
  * - name: repo
  *   type: string
  *   required: true
- *   description: 'npm project to check: a git URL (https://, ssh://, git@host:owner/name) or a path to a local checkout with an npm, pnpm, yarn, uv, poetry or pip lockfile'
+ *   description: 'npm project to check: a git URL (https://, ssh://, git@host:owner/name) or a path to a local checkout with an npm, pnpm, yarn, uv, poetry, pip or Cargo lockfile'
  *   example: https://github.com/axios/axios
  * - name: branch
  *   type: string
@@ -162,7 +162,10 @@ if (!data) {
       if (hm.length && lm.length && !hm.some((m) => lm.includes(m))) {
         lines.push(`      maintainers ${hm.join(" ")}  ->  ${lm.join(" ")}`);
       }
-      if (have["yanked"] === true) lines.push(`      the release you pinned is YANKED on PyPI — withdrawn by its maintainers`);
+      if (have["yanked"] === true) lines.push(`      the release you pinned is YANKED — withdrawn by its maintainers`);
+      if (have["rust_version"] && latest["rust_version"] && have["rust_version"] !== latest["rust_version"]) {
+        lines.push(`      rust-version (MSRV) ${S(have["rust_version"])}  ->  ${S(latest["rust_version"])}`);
+      }
       if (have["requires_python"] && latest["requires_python"] && have["requires_python"] !== latest["requires_python"]) {
         lines.push(`      requires-python ${S(have["requires_python"])}  ->  ${S(latest["requires_python"])}`);
       }

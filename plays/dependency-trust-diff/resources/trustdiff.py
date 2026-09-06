@@ -97,9 +97,14 @@ def locked_packages(root):
     lf, pinned, direct = python_locked(root)
     if pinned:
         return lf, pinned, direct, None
+    lf, pinned, direct = cargo_locked(root)
+    if pinned:
+        return lf, pinned, direct, None
+    if (root / "Cargo.toml").is_file():
+        return None, None, None, "Cargo.toml without a Cargo.lock: nothing is pinned to compare"
     if (root / "pyproject.toml").is_file() or (root / "setup.py").is_file():
         return None, None, None, "Python project without a lock (uv.lock, poetry.lock, Pipfile.lock) or a ==-pinned requirements.txt: nothing is pinned to compare"
-    return None, None, None, "no package.json or pyproject.toml: not an npm or Python project"
+    return None, None, None, "no package.json, pyproject.toml or Cargo.toml: not an npm, Python or Rust project"
 
 
 PNPM_KEY = re.compile(r"^  ['\"]?/?(@?[^@'\"\s/]+(?:/[^@'\"\s/]+)?)@([^'\"(:\s]+)")   # v6/v9: name@1.2.3 or /name@1.2.3
@@ -272,7 +277,7 @@ def fetch_pypi(name, version):
         p = Path(FIXTURE_DIR) / f"pypi__{name}@{version}.json"
         return load_json(p) if p.is_file() else None
     url = f"{PYPI}/{urllib.parse.quote(name)}/json" if version == "latest" else f"{PYPI}/{urllib.parse.quote(name)}/{urllib.parse.quote(version)}/json"
-    req = urllib.request.Request(url, headers={"User-Agent": "dependency-trust-diff/0.6 (rote play)"})
+    req = urllib.request.Request(url, headers={"User-Agent": "dependency-trust-diff/0.7 (rote play)"})
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
             return json.loads(r.read().decode("utf-8", "replace"))
@@ -300,6 +305,79 @@ def summarize_pypi(meta):
         "install_scripts": [],
         "provenance": None,
         "unpacked_size": None,
+        "file_count": None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Rust: Cargo.lock -> crates.io. Unlike PyPI, crates.io records who published
+# each version, so PUBLISHER_CHANGED works here too.
+# ---------------------------------------------------------------------------
+CRATES = "https://crates.io/api/v1/crates"
+
+
+def cargo_locked(root):
+    lock = _toml(root / "Cargo.lock") if (root / "Cargo.lock").is_file() else None
+    if not lock or not isinstance(lock.get("package"), list):
+        return None, None, None
+    pinned = {}
+    for pkg in lock["package"]:
+        if isinstance(pkg, dict) and pkg.get("name") and pkg.get("version") and "crates.io" in str(pkg.get("source", "")):
+            pinned.setdefault(pkg["name"], str(pkg["version"]))
+    manifest = _toml(root / "Cargo.toml") or {}
+    direct = set()
+    for sect in ("dependencies", "dev-dependencies", "build-dependencies"):
+        direct.update((manifest.get(sect) or {}).keys())
+        direct.update(((manifest.get("workspace") or {}).get(sect) or {}).keys())
+    for tgt in (manifest.get("target") or {}).values():
+        for sect in ("dependencies", "dev-dependencies", "build-dependencies"):
+            direct.update(((tgt or {}).get(sect) or {}).keys())
+    # workspace members' direct deps count as direct too
+    for m in (manifest.get("workspace") or {}).get("members", []) or []:
+        for d in root.glob(m):
+            mt = _toml(d / "Cargo.toml") or {}
+            for sect in ("dependencies", "dev-dependencies", "build-dependencies"):
+                direct.update((mt.get(sect) or {}).keys())
+    direct = {d.replace("_", "-") if d not in pinned and d.replace("_", "-") in pinned else d for d in direct}
+    return ("Cargo.lock", pinned, direct) if pinned else (None, None, None)
+
+
+def fetch_crate(name, version):
+    if FIXTURE_DIR:
+        p = Path(FIXTURE_DIR) / f"crates__{name}@{version}.json"
+        return load_json(p) if p.is_file() else None
+    url = f"{CRATES}/{urllib.parse.quote(name)}" if version == "latest" else f"{CRATES}/{urllib.parse.quote(name)}/{urllib.parse.quote(version)}"
+    req = urllib.request.Request(url, headers={"User-Agent": "dependency-trust-diff/0.7 (rote play; github.com/PugarHuda/rote-repo-onboarding-brief)"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read().decode("utf-8", "replace"))
+    except Exception:
+        return None
+
+
+def summarize_crate(meta):
+    if not isinstance(meta, dict):
+        return None
+    v = meta.get("version")
+    if v is None and isinstance(meta.get("crate"), dict):
+        # the crate document: pick the version marked max_stable_version (or max_version)
+        want = meta["crate"].get("max_stable_version") or meta["crate"].get("max_version")
+        v = next((x for x in meta.get("versions", []) if x.get("num") == want), None)
+    if not isinstance(v, dict):
+        return None
+    pub = v.get("published_by") or {}
+    return {
+        "version": v.get("num"),
+        "publisher": pub.get("login") if isinstance(pub, dict) else None,
+        "license": v.get("license"),
+        "maintainers": [pub.get("login")] if isinstance(pub, dict) and pub.get("login") else [],
+        "deprecated": False,
+        "yanked": bool(v.get("yanked")),
+        "requires_python": None,
+        "rust_version": v.get("rust_version"),
+        "install_scripts": [],
+        "provenance": None,
+        "unpacked_size": v.get("crate_size") if isinstance(v.get("crate_size"), int) else None,
         "file_count": None,
     }
 
@@ -363,6 +441,9 @@ def check(name, locked_version, ecosystem="npm"):
     if ecosystem == "PyPI":
         have = summarize_pypi(fetch_pypi(name, locked_version))
         latest = summarize_pypi(fetch_pypi(name, "latest"))
+    elif ecosystem == "crates.io":
+        have = summarize_crate(fetch_crate(name, locked_version))
+        latest = summarize_crate(fetch_crate(name, "latest"))
     else:
         have = summarize(fetch_version(name, locked_version))
         latest = summarize(fetch_version(name, "latest"))
@@ -375,6 +456,8 @@ def check(name, locked_version, ecosystem="npm"):
     if have.get("yanked"):
         # The release you pinned was withdrawn by its maintainers; installs may still succeed.
         row["findings"].append("LOCKED_YANKED")
+    if have.get("rust_version") and latest.get("rust_version") and have["rust_version"] != latest["rust_version"]:
+        row["findings"].append("MSRV_CHANGED")
     if have["version"] == latest["version"]:
         row["status"] = "FLAGGED" if row["findings"] else "CURRENT"
         return row
@@ -426,7 +509,7 @@ def osv_lookup(pairs, ecosystem="npm"):
         chunk = pairs[start:start + 1000]
         body = json.dumps({"queries": [{"package": {"name": n, "ecosystem": ecosystem}, "version": v} for n, v in chunk]}).encode()
         req = urllib.request.Request(OSV, data=body, headers={
-            "Content-Type": "application/json", "User-Agent": "dependency-trust-diff/0.6 (rote play)"})
+            "Content-Type": "application/json", "User-Agent": "dependency-trust-diff/0.7 (rote play)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 results = json.loads(r.read().decode("utf-8", "replace")).get("results", [])
@@ -444,7 +527,8 @@ def audit(root, scope="direct", max_packages=200):
     lockfile, pinned, direct, reason = locked_packages(root)
     if pinned is None:
         return {"root": str(root), "ok": False, "lockfile": lockfile, "reason": reason}
-    ecosystem = "PyPI" if lockfile in ("uv.lock", "poetry.lock", "Pipfile.lock") or lockfile.startswith("requirements") else "npm"
+    ecosystem = ("PyPI" if lockfile in ("uv.lock", "poetry.lock", "Pipfile.lock") or lockfile.startswith("requirements")
+                 else "crates.io" if lockfile == "Cargo.lock" else "npm")
     names = sorted(pinned) if scope == "all" else sorted(n for n in pinned if n in direct)
     skipped = max(0, len(names) - max_packages)
     names = names[:max_packages]
@@ -466,7 +550,7 @@ def audit(root, scope="direct", max_packages=200):
         "root": str(root), "ok": True, "lockfile": lockfile, "ecosystem": ecosystem, "scope": scope,
         "pinned_total": len(pinned), "direct_total": len(direct),
         "checked": len(rows), "skipped_over_max": skipped,
-        "source": "fixtures" if FIXTURE_DIR else (PYPI if ecosystem == "PyPI" else REGISTRY),
+        "source": "fixtures" if FIXTURE_DIR else (PYPI if ecosystem == "PyPI" else CRATES if ecosystem == "crates.io" else REGISTRY),
         "osv": {"checked": osv_note is None, "vulnerable_packages": len(vulns), "note": osv_note},
         "counts": {k: len(v) for k, v in sorted(by.items())},
         "flagged": by.get("FLAGGED", []),

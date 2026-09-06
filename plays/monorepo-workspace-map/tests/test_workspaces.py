@@ -141,6 +141,19 @@ def test_turbo_pipeline_coverage():
         assert tasks["test"]["packages_without"] == ["config", "ui"] and tasks["test"]["packages_with_script"] == 1
 
 
+def test_nx_target_defaults_coverage():
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        (r / "package.json").write_text(json.dumps({"name": "root", "workspaces": ["libs/*"]}))
+        (r / "nx.json").write_text(json.dumps({"targetDefaults": {"build": {"cache": True}, "test": {}, "@nx/jest:jest": {}, "e2e-ci--**/*": {}}}))
+        mk(r, "libs/a", {"name": "a", "scripts": {"build": "x", "test": "y"}})
+        mk(r, "libs/b", {"name": "b", "scripts": {"build": "x"}})
+        d = ws(r)
+        assert d["pipeline"]["file"] == "nx.json"
+        tasks = {t["task"]: t["packages_without"] for t in d["pipeline"]["tasks"]}
+        assert tasks == {"build": [], "test": ["b"]}, tasks
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

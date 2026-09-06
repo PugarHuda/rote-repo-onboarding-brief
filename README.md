@@ -113,7 +113,9 @@ Since 0.3.0 the brief compares what the repository demands with what you actuall
 `.nvmrc`/`.node-version`, `packageManager`, `requires-python`, `.python-version`, the `go.mod` go
 directive, `rust-toolchain` and `.tool-versions`, against the `--version` of your own `node`,
 `python3`, `go` and `cargo`. Those are host tools, never the project's code. A Node two majors too
-old is reported before any command below it is trusted.
+old is reported before any command below it is trusted. Since 0.6.0 the versions CI tests on
+(`setup-node`/`setup-python`/`setup-go`, matrices included) and the Dockerfile `FROM` image are
+floors too, so "CI tests Node 18 while engines says >=20" is reported as a contradiction.
 
 ## Requirements
 
@@ -208,7 +210,9 @@ Reads `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml` (v5 to v9) an
 projects go to PyPI instead: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a `==`-pinned
 `requirements.txt`, with `LOCKED_YANKED` (the release you pinned was withdrawn) and
 `REQUIRES_PYTHON_CHANGED`; PyPI does not expose who uploaded a release, and the output says so
-rather than inventing a publisher. Its only
+rather than inventing a publisher. Rust projects go to crates.io from `Cargo.lock`, where the
+publisher of every version is public, so `PUBLISHER_CHANGED` works there too, plus
+`LOCKED_YANKED` and `MSRV_CHANGED`. Its only
 network access is anonymous GETs to `registry.npmjs.org` and one POST to `api.osv.dev`. Source under
 `plays/dependency-trust-diff/`; the self-check runs fully offline against fixtures.
 

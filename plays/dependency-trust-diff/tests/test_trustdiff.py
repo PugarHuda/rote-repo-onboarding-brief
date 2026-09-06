@@ -222,6 +222,50 @@ source = { registry = "https://pypi.org/simple" }
         assert d["ok"] is False and "nothing is pinned" in d["reason"]
 
 
+def crate_meta(num, login, license, yanked=False, rust_version=None, as_crate_doc=False):
+    v = {"num": num, "published_by": {"login": login}, "license": license, "yanked": yanked, "rust_version": rust_version, "crate_size": 10000}
+    return {"crate": {"max_stable_version": num}, "versions": [v]} if as_crate_doc else {"version": v}
+
+
+def test_cargo_lock_goes_to_crates_io():
+    with tempfile.TemporaryDirectory() as t:
+        r, fx = Path(t) / "repo", Path(t) / "fx"
+        r.mkdir(); fx.mkdir()
+        (r / "Cargo.toml").write_text('[package]\nname = "app"\n[dependencies]\nserde = "1"\ntokio = { version = "1", features = ["full"] }\n')
+        (r / "Cargo.lock").write_text('''version = 3
+
+[[package]]
+name = "app"
+version = "0.1.0"
+
+[[package]]
+name = "serde"
+version = "1.0.197"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "tokio"
+version = "1.36.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "mio"
+version = "0.8.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+''')
+        (fx / "crates__serde@1.0.197.json").write_text(json.dumps(crate_meta("1.0.197", "dtolnay", "MIT OR Apache-2.0", rust_version="1.56")))
+        (fx / "crates__serde@latest.json").write_text(json.dumps(crate_meta("1.0.210", "someone-else", "MIT OR Apache-2.0", rust_version="1.61", as_crate_doc=True)))
+        (fx / "crates__tokio@1.36.0.json").write_text(json.dumps(crate_meta("1.36.0", "carllerche", "MIT", yanked=True)))
+        (fx / "crates__tokio@latest.json").write_text(json.dumps(crate_meta("1.36.0", "carllerche", "MIT", as_crate_doc=True)))
+        (fx / "osv.json").write_text("{}")
+        d = run(r, fx)
+        assert d["ok"] and d["lockfile"] == "Cargo.lock" and d["ecosystem"] == "crates.io"
+        assert d["pinned_total"] == 3 and d["checked"] == 2  # mio transitive, app is the root
+        fl = {f["name"]: f["findings"] for f in d["flagged"]}
+        assert fl["serde"] == ["MSRV_CHANGED", "PUBLISHER_CHANGED", "MAINTAINERS_REPLACED"], fl
+        assert fl["tokio"] == ["LOCKED_YANKED"], fl
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

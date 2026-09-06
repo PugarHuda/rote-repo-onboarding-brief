@@ -3,7 +3,7 @@
  * @rote-frontmatter
  * ---
  * name: monorepo-workspace-map
- * description: Map a monorepo's package boundaries — which workspace packages exist, which depend on which, which are leaves nobody imports, and which dependency cycles exist. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. Also reports version skew, where the same external dependency is pinned differently in different packages, which is the papercut that builds fine and then breaks once at runtime; internal version mismatch, where a package asks for a range of a sibling that the workspace copy does not satisfy, so the package manager silently installs it from the registry instead of linking it; unlisted packages, directories holding a manifest that no workspace glob covers; and, when turbo.json is present, pipeline coverage — which packages have no script for a task the pipeline expects and are therefore skipped silently. Understands npm and yarn workspaces, pnpm workspaces, Cargo workspaces, go.work, uv workspaces, and lerna. If the repository is not a monorepo it says so and lists every workspace definition it looked for, rather than returning an empty map. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
+ * description: Map a monorepo's package boundaries — which workspace packages exist, which depend on which, which are leaves nobody imports, and which dependency cycles exist. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. Also reports version skew, where the same external dependency is pinned differently in different packages, which is the papercut that builds fine and then breaks once at runtime; internal version mismatch, where a package asks for a range of a sibling that the workspace copy does not satisfy, so the package manager silently installs it from the registry instead of linking it; unlisted packages, directories holding a manifest that no workspace glob covers; and, when turbo.json or nx.json is present, pipeline coverage — which packages have no script for a task the pipeline expects and are therefore skipped silently. Understands npm and yarn workspaces, pnpm workspaces, Cargo workspaces, go.work, uv workspaces, and lerna. If the repository is not a monorepo it says so and lists every workspace definition it looked for, rather than returning an empty map. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
  * source: https://github.com/PugarHuda/rote-repo-onboarding-brief
  * tags:
  * - domain-code-analysis
@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.3.1
+ *   version: 0.3.2
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
@@ -228,7 +228,7 @@ if (!data) {
   const pipe = data["pipeline"] as Dict | null;
   if (pipe && Array.isArray(pipe["tasks"]) && (pipe["tasks"] as Dict[]).length) {
     lines.push(`PIPELINE COVERAGE (${S(pipe["file"])})`);
-    lines.push("  A task turbo expects that a package has no script for is skipped silently, not failed:");
+    lines.push("  A task the pipeline expects that a package has no script for is skipped silently, not failed:");
     for (const t of pipe["tasks"] as Dict[]) {
       const without = (t["packages_without"] as string[]) ?? [];
       const n = Number(t["without_count"] ?? without.length);

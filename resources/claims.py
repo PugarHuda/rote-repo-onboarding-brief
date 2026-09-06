@@ -270,6 +270,27 @@ def declared_floors(root):
             if m and m.group(1)[0].isdigit():
                 out.append(("cargo", m.group(1), f))
             break
+    # What CI actually tests on, and what the image ships: both are floors a reader
+    # will compare against, and both drift away from engines/.nvmrc.
+    wf = root / ".github" / "workflows"
+    if wf.is_dir():
+        for f in sorted(wf.iterdir())[:20]:
+            if f.suffix not in (".yml", ".yaml"):
+                continue
+            txt = read_text(f)
+            for key, tool in (("node-version", "node"), ("python-version", "python3"), ("go-version", "go"), ("toolchain", "cargo")):
+                for m in re.finditer(rf"^\s*{key}:\s*(.+)$", txt, re.M):
+                    raw = m.group(1).strip().strip("'\"")
+                    vals = [v.strip().strip("'\"") for v in raw.strip("[]").split(",")] if raw.startswith("[") else [raw]
+                    for v in vals:
+                        if v and v[0].isdigit() and "${{" not in v:
+                            out.append((tool, v + (".x" if v.count(".") == 0 and tool == "node" else ""), f"ci: {f.name}"))
+    for df in ["Dockerfile"] + sorted(str(x.name) for x in root.glob("Dockerfile.*")):
+        if (root / df).is_file():
+            for m in re.finditer(r"^FROM\s+(?:--platform=\S+\s+)?(node|python|golang|rust):([0-9][0-9.]*)", read_text(root / df), re.M):
+                tool = {"node": "node", "python": "python3", "golang": "go", "rust": "cargo"}[m.group(1)]
+                v = m.group(2).rstrip(".")
+                out.append((tool, v + (".x" if v.count(".") < 2 else ""), f"{df} FROM"))
     if (root / ".tool-versions").is_file():
         for line in read_text(root / ".tool-versions").splitlines():
             parts = line.split()
@@ -345,9 +366,25 @@ def satisfies(spec, version):
     return False
 
 
+def collapse_ci_matrix(floors):
+    """A CI matrix is one floor (its lowest version), not ten. Keep the spread in the source label."""
+    out, ci = [], {}
+    for tool, spec, source in floors:
+        if source.startswith("ci: "):
+            ci.setdefault((tool, source), []).append(spec)
+        else:
+            out.append((tool, spec, source))
+    for (tool, source), specs in ci.items():
+        keyed = sorted(specs, key=lambda v: _vt(v.replace(".x", ".0")) or (0, 0, 0))
+        lo, hi = keyed[0], keyed[-1]
+        label = source if len(specs) == 1 else f"{source} (tests {len(specs)} versions, {lo} to {hi})"
+        out.append((tool, lo, label))
+    return out
+
+
 def toolchain(root):
     rows = []
-    for tool, spec, source in declared_floors(root):
+    for tool, spec, source in collapse_ci_matrix(declared_floors(root)):
         have = installed_version(tool)
         if have is None:
             status = "missing"
@@ -368,9 +405,10 @@ def floor_conflicts(rows):
     for tool, decls in by_tool.items():
         for a in decls:
             pin = a["declared"].lstrip("=v")
-            if not re.match(r"^\d+(\.\d+){0,2}$", pin):
-                continue  # only a concrete pin can be tested against the other ranges
-            probe_version = pin if pin.count(".") == 2 else pin + (".0" * (2 - pin.count(".")))
+            if not re.match(r"^\d+(\.(\d+|x))?(\.(\d+|x))?$", pin):
+                continue  # only a concrete pin (or `18.x`, a CI matrix major) can be tested against the other ranges
+            parts = [p for p in pin.split(".") if p != "x"]
+            probe_version = ".".join(parts + ["0"] * (3 - len(parts)))
             for b in decls:
                 if b is a or b["declared"] == a["declared"]:
                     continue
