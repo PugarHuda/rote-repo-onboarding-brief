@@ -82,6 +82,17 @@ this, both of which made the brief state something false:
 Both were the same class of error — the tool confidently asserting something it had no basis for —
 which is exactly what a Play whose value is honesty cannot afford to ship.
 
+## Where every claim comes from, and what the code needs that nobody wrote down
+
+Since 0.4.0 the brief reads `README`, `CONTRIBUTING`, `DEVELOPMENT` and `docs/*.md`, and cites
+`file:Lnn` for every command it checks. It also scans the source for environment variables the
+code reads (`process.env.X`, `os.environ["X"]`, `os.getenv`, `os.Getenv`, `env::var`, Ruby `ENV`)
+and compares them with `.env.example`, compose files and the docs. The ones read with **no
+fallback and documented nowhere** are listed first: those are the variables the process dies on
+during a stranger's first run. The brief then ends with **FIRST RUN, IN ORDER** — toolchain, the
+install command the committed lockfile implies (`npm ci`, `pnpm install --frozen-lockfile`,
+`uv sync`, `cargo build`, …), env, run, test — so it reads as a sequence, not a list.
+
 ## Your machine vs the floors the project declares
 
 Since 0.3.0 the brief compares what the repository demands with what you actually have: `engines`,

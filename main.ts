@@ -3,7 +3,7 @@
  * @rote-frontmatter
  * ---
  * name: repo-onboarding-brief
- * description: Onboard to an unfamiliar repository, and check its setup instructions instead of trusting them. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. Cross-references every command the README tells you to run against what the project actually defines — package.json scripts, Make targets, justfile recipes, Cargo bins, go run/test paths, pyproject scripts, tox envs, nox sessions, Taskfile tasks, compose services, Dockerfiles, and npx binaries declared as dependencies — and against the tools present on your machine — including their versions against the floors the project declares in engines, .nvmrc, requires-python, .python-version, go.mod, rust-toolchain and .tool-versions, read by running `--version` on your own tools, never the project's code — so a documented-but-nonexistent command, or a Node two majors too old, is named before you lose an afternoon to it. Also reports stack and version floors, entry points, a layout map, risk flags (no lockfile, no tests, no CI, committed secret-shaped files), and an explicit list of what it could not determine. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
+ * description: Onboard to an unfamiliar repository, and check its setup instructions instead of trusting them. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. Cross-references every command the README tells you to run against what the project actually defines — package.json scripts, Make targets, justfile recipes, Cargo bins, go run/test paths, pyproject scripts, tox envs, nox sessions, Taskfile tasks, compose services, Dockerfiles, and npx binaries declared as dependencies — and against the tools present on your machine — including their versions against the floors the project declares in engines, .nvmrc, requires-python, .python-version, go.mod, rust-toolchain and .tool-versions, read by running `--version` on your own tools, never the project's code — so a documented-but-nonexistent command, or a Node two majors too old, is named before you lose an afternoon to it. Reads README, CONTRIBUTING and docs/ and cites file and line for every command. Lists the environment variables the code reads that no .env.example or doc admits to, split into the ones with no fallback (the process dies on first use) and the ones with a default. Ends with FIRST RUN, IN ORDER — toolchain, the install command the committed lockfile implies, env, run, test — so the brief is a sequence, not a list. Also reports stack and version floors, entry points, a layout map, risk flags (no lockfile, no tests, no CI, committed secret-shaped files), and an explicit list of what it could not determine. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
  * source: https://github.com/PugarHuda/rote-repo-onboarding-brief
  * tags:
  * - domain-code-analysis
@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.3.1
+ *   version: 0.4.1
  *   status: released
  *   kind: atomic
  *   flow_type: parallel
@@ -219,11 +219,12 @@ if (!probe) {
     lines.push("  Command check unavailable — the claims step did not complete.");
     unclear.push("Whether the documented commands are real — the check did not run.");
   } else if (!claimList.length) {
-    lines.push("  The README quotes no runnable commands.");
+    lines.push("  The README, CONTRIBUTING and docs/ quote no runnable commands.");
     unclear.push("How to set the project up — the README quotes no commands at all.");
   } else {
-    lines.push("  Every command the README tells you to run, checked against what");
-    lines.push("  this project actually defines:");
+    const docs = (claims?.["docs_scanned"] as string[]) ?? [];
+    lines.push(`  Every command the docs tell you to run (${docs.length ? docs.join(", ") : "README"}), checked`);
+    lines.push("  against what this project actually defines:");
     lines.push("");
     const LABEL: Record<string, string> = {
       defined: "works",
@@ -233,7 +234,8 @@ if (!probe) {
     };
     for (const c of claimList) {
       const status = S(c["status"]);
-      lines.push(`  [${(LABEL[status] ?? status).padEnd(12)}] ${S(c["command"])}`);
+      const where = c["line"] != null ? `${S(c["source"])}:L${S(c["line"])}` : S(c["source"]);
+      lines.push(`  [${(LABEL[status] ?? status).padEnd(12)}] ${S(c["command"])}   (${where})`);
       lines.push(`  ${" ".repeat(16)}${S(c["evidence"])}`);
     }
     const rot = claimList.filter((c) => c["status"] === "undefined");
@@ -258,6 +260,40 @@ if (!probe) {
     if (v.length) lines.push(`  ${label}: ${v.join(", ")}`);
   }
   lines.push("");
+
+  // 3b -- the trap that kills a first run --------------------------------
+  const env = (claims?.["env"] as Dict) ?? null;
+  if (env && Number(env["read_count"]) > 0) {
+    const req = (env["undocumented_required"] as Dict[]) ?? [];
+    const fb = (env["undocumented_with_fallback"] as string[]) ?? [];
+    const dead = (env["documented_never_read"] as string[]) ?? [];
+    const srcs = (env["documented_sources"] as string[]) ?? [];
+    lines.push(`ENVIRONMENT  ${S(env["read_count"])} variables read by the code · documented in ${srcs.length ? srcs.join(", ") : "no .env.example"}`);
+    if (req.length) {
+      lines.push(`  ${req.length} read with NO fallback and documented nowhere — the process dies on first use:`);
+      for (const r of req.slice(0, 15)) lines.push(`    ${S(r["name"]).padEnd(32)} ${((r["files"] as string[]) ?? []).slice(0, 2).join(", ")}`);
+      if (req.length > 15) lines.push(`    … ${req.length - 15} more`);
+      unclear.push(`What ${req.length} required environment variable(s) should be set to — the code reads them, nothing documents them.`);
+    }
+    if (fb.length) lines.push(`  ${fb.length} undocumented but with a default in code: ${fb.slice(0, 10).join(", ")}${fb.length > 10 ? ", …" : ""}`);
+    if (dead.length) lines.push(`  ${dead.length} in the example file that nothing reads: ${dead.slice(0, 8).join(", ")}`);
+    if (!req.length && !fb.length) lines.push("  Every variable the code reads is documented.");
+    if (env["scan_truncated"] === true) lines.push("  (scan stopped at 3000 source files; counts are a floor)");
+    lines.push("");
+  }
+
+  // 3c -- the sequence, not the list ---------------------------------------
+  const fr = (claims?.["first_run"] as Dict[]) ?? [];
+  if (fr.length || tc.length) {
+    lines.push("FIRST RUN, IN ORDER");
+    let n = 1;
+    const badTc = tc.filter((t) => t["status"] === "below_floor" || t["status"] === "missing");
+    if (tc.length) lines.push(`  ${n++}. toolchain   ${badTc.length ? `fix ${badTc.map((t) => S(t["tool"])).join(", ")} first (see YOUR MACHINE)` : "every declared floor is met"}`);
+    for (const st of fr) lines.push(`  ${n++}. ${S(st["step"]).padEnd(11)} ${S(st["command"]).padEnd(34)} ${S(st["why"])}`);
+    const reqN = ((env?.["undocumented_required"] as Dict[]) ?? []).length;
+    if (reqN) lines.push(`  ${n++}. env         set the ${reqN} undocumented variable(s) above before the run step`);
+    lines.push("");
+  }
 
   // 4 -----------------------------------------------------------------
   lines.push("ENTRY POINTS");
@@ -317,6 +353,10 @@ if (!probe) {
     lockfiles: locks,
     entry_points: entries,
     command_claims: claimList,
+    docs_scanned: claims?.["docs_scanned"] ?? [],
+    toolchain: tc,
+    environment: env,
+    first_run: fr,
     claim_summary: claims?.["summary"] ?? null,
     documented_but_undefined: rotCount,
     risk_flags: risks,

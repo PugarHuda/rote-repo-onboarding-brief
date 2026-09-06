@@ -151,6 +151,35 @@ def test_satisfies_ranges():
     assert satisfies("lts/*", "22.0.0") is True and satisfies("weird", "1.0.0") is None
 
 
+def test_docs_lines_env_and_first_run():
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        (r / "package.json").write_text(json.dumps({"scripts": {"dev": "vite", "test": "vitest"}}))
+        (r / "package-lock.json").write_text("{}")
+        (r / "README.md").write_text("# x\n\nintro\n\n```sh\nnpm run dev\n```\n")
+        (r / "CONTRIBUTING.md").write_text("```bash\nnpm run lint\n```\n")
+        (r / "docs").mkdir(); (r / "docs" / "guide.md").write_text("```\nnpm run build\n```\n")
+        (r / ".env.example").write_text("DATABASE_URL=postgres://x\nUNUSED_KEY=1\n")
+        (r / "src").mkdir()
+        (r / "src" / "app.js").write_text(
+            'const a = process.env.DATABASE_URL;\nconst b = process.env.SECRET_TOKEN;\n'
+            'const c = process.env.LOG_LEVEL || "info";\nconst d = process.env.NODE_ENV;\n')
+        (r / "src" / "cfg.py").write_text('x = os.environ["API_KEY"]\ny = os.getenv("REGION", "eu")\n')
+        d = claims(r)
+        assert d["docs_scanned"] == ["README.md", "CONTRIBUTING.md", "docs/guide.md"]
+        by = {c["command"]: c for c in d["claims"]}
+        assert by["npm run dev"]["source"] == "README.md" and by["npm run dev"]["line"] == 6
+        assert by["npm run lint"]["source"] == "CONTRIBUTING.md" and by["npm run lint"]["status"] == "undefined"
+        assert by["npm run build"]["source"] == "docs/guide.md"
+        env = d["env"]
+        assert env["read_count"] == 5  # NODE_ENV is noise
+        assert [e["name"] for e in env["undocumented_required"]] == ["API_KEY", "SECRET_TOKEN"]
+        assert env["undocumented_with_fallback"] == ["LOG_LEVEL", "REGION"]
+        assert env["documented_never_read"] == ["UNUSED_KEY"]
+        steps = [(s["step"], s["command"]) for s in d["first_run"]]
+        assert steps[0] == ("install", "npm ci") and ("run", "npm run dev") in steps and ("test", "npm test") in steps
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

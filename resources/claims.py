@@ -39,26 +39,47 @@ def strip_prompt(line):
     return line
 
 
-def readme_commands(root):
-    """Every plausible shell command quoted in the repo's README."""
-    out = []
+DOC_NAMES = ("readme", "contributing", "development", "developing", "hacking", "setup", "install", "getting-started", "getting_started")
+
+
+def doc_files(root, cap=25):
+    """README first, then CONTRIBUTING/DEVELOPMENT/… at the root, then docs/*.md. Capped."""
+    files = []
     for p in sorted(root.iterdir()):
-        if not (p.is_file() and p.name.lower().startswith("readme")):
-            continue
+        if p.is_file() and p.name.lower().startswith("readme"):
+            files.append(p)
+    for p in sorted(root.iterdir()):
+        low = p.name.lower()
+        if p.is_file() and any(low.startswith(n) for n in DOC_NAMES[1:]) and low.endswith((".md", ".rst", ".txt")):
+            files.append(p)
+    for sub in ("docs", "doc"):
+        d = root / sub
+        if d.is_dir():
+            files.extend(sorted(f for f in d.glob("*.md") if f.is_file())[:10])
+    return files[:cap]
+
+
+def readme_commands(root):
+    """Every plausible shell command quoted in the repo's docs, with the file and line it came from."""
+    out = []
+    for p in doc_files(root):
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
         except Exception:
             continue
-        for lang, body in FENCE.findall(text):
+        rel = p.relative_to(root).as_posix()
+        for m in FENCE.finditer(text):
+            lang, body = m.group(1), m.group(2)
             if lang.lower() not in SHELL_LANGS:
                 continue
-            for raw in body.splitlines():
+            first_line = text.count("\n", 0, m.start()) + 2  # line after the opening fence
+            for i, raw in enumerate(body.splitlines()):
                 line = strip_prompt(raw)
                 if not line or line.startswith("#"):
                     continue
                 head = line.split()[0] if line.split() else ""
                 if head in TOOLS:
-                    out.append({"command": line, "source": p.name})
+                    out.append({"command": line, "source": rel, "line": first_line + i})
     # De-duplicate, keep first occurrence order.
     seen, uniq = set(), []
     for c in out:
@@ -337,6 +358,148 @@ def toolchain(root):
     return rows
 
 
+# ---------------------------------------------------------------------------
+# Environment variables the code reads, versus the ones the docs admit to.
+# The undocumented-and-no-fallback ones are the trap that kills a first run.
+# ---------------------------------------------------------------------------
+SRC_EXT = {".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".py", ".go", ".rs", ".rb"}
+SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", "target", ".next", "vendor", "coverage", ".turbo"}
+ENV_PATTERNS = [
+    # (regex, has_fallback_regex_suffix)
+    (re.compile(r"process\.env\.([A-Z][A-Z0-9_]{1,63})"), r"\s*(\|\||\?\?|\?)"),
+    (re.compile(r"process\.env\[[\"']([A-Z][A-Z0-9_]{1,63})[\"']\]"), r"\s*(\|\||\?\?|\?)"),
+    (re.compile(r"os\.environ\[[\"']([A-Z][A-Z0-9_]{1,63})[\"']\]"), None),
+    (re.compile(r"os\.environ\.get\([\"']([A-Z][A-Z0-9_]{1,63})[\"'](,)?"), r","),
+    (re.compile(r"os\.getenv\([\"']([A-Z][A-Z0-9_]{1,63})[\"'](,)?"), r","),
+    (re.compile(r"os\.Getenv\([\"']([A-Z][A-Z0-9_]{1,63})[\"']\)"), None),
+    (re.compile(r"os\.LookupEnv\([\"']([A-Z][A-Z0-9_]{1,63})[\"']\)"), r"."),
+    (re.compile(r"env::var(?:_os)?\([\"']([A-Z][A-Z0-9_]{1,63})[\"']\)"), r"\s*\.(unwrap_or|ok\(\)|unwrap_or_else|unwrap_or_default)"),
+    (re.compile(r"ENV(?:\.fetch)?[\[(][\"']([A-Z][A-Z0-9_]{1,63})[\"'](,)?"), r","),
+]
+# Process/shell protocol variables every program may read; never project configuration.
+ENV_NOISE = {"NODE_ENV", "PATH", "HOME", "CI", "DEBUG", "TERM", "SHELL", "PWD", "TZ", "LANG", "LC_ALL", "USER", "TMPDIR", "TEMP", "TMP",
+             "GITHUB_ACTIONS", "PORT", "NODE_OPTIONS", "npm_config_user_agent", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
+             "COMP_WORDS", "COMP_CWORD", "COMP_LINE", "COMP_POINT", "COLUMNS", "LINES", "NO_COLOR", "FORCE_COLOR", "PAGER", "EDITOR", "VISUAL", "LESS",
+             "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSH_AUTH_SOCK", "DISPLAY", "PYTHONPATH", "VIRTUAL_ENV", "GOPATH", "CARGO_HOME"}
+
+
+def env_reads(root, max_files=3000):
+    """{VAR: {"files": [..], "fallback": bool}} for every env var the source reads."""
+    found, n = {}, 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+        for f in filenames:
+            if Path(f).suffix not in SRC_EXT or f.endswith((".d.ts", ".min.js")):
+                continue
+            n += 1
+            if n > max_files:
+                return found, True
+            path = Path(dirpath) / f
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")[:400_000]
+            except Exception:
+                continue
+            rel = path.relative_to(root).as_posix()
+            if "/test" in f"/{rel}" or rel.startswith("tests/") or ".test." in rel or ".spec." in rel:
+                continue
+            for rx, fb in ENV_PATTERNS:
+                for m in rx.finditer(text):
+                    name = m.group(1)
+                    if name in ENV_NOISE:
+                        continue
+                    tail = text[m.end():m.end() + 12]
+                    has_fb = bool(fb and re.match(fb, tail)) or (fb == "," and m.lastindex and m.lastindex >= 2 and m.group(2) == ",")
+                    e = found.setdefault(name, {"files": [], "fallback": True})
+                    if rel not in e["files"] and len(e["files"]) < 5:
+                        e["files"].append(rel)
+                    e["fallback"] = e["fallback"] and has_fb
+    return found, False
+
+
+def env_documented(root):
+    """Names the docs admit to: .env.example-style files, compose env blocks, and the docs text."""
+    names, sources = set(), []
+    for f in (".env.example", ".env.sample", ".env.template", ".env.dist", "env.example", ".env.defaults"):
+        if (root / f).is_file():
+            sources.append(f)
+            for line in read_text(root / f).splitlines():
+                m = re.match(r"^\s*(?:export\s+)?([A-Z][A-Z0-9_]{1,63})\s*=", line)
+                if m:
+                    names.add(m.group(1))
+    for cf in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"):
+        if (root / cf).is_file():
+            names.update(re.findall(r"^\s*-?\s*([A-Z][A-Z0-9_]{1,63})\s*[:=]", read_text(root / cf), re.M))
+    for p in doc_files(root):
+        names.update(re.findall(r"\b([A-Z][A-Z0-9_]{2,63})\b", read_text(p)))
+    return names, sources
+
+
+def env_audit(root):
+    reads, truncated = env_reads(root)
+    documented, sources = env_documented(root)
+    undocumented = sorted(n for n in reads if n not in documented)
+    return {
+        "read_count": len(reads),
+        "documented_sources": sources,
+        "undocumented_required": [{"name": n, "files": reads[n]["files"]} for n in undocumented if not reads[n]["fallback"]][:40],
+        "undocumented_with_fallback": [n for n in undocumented if reads[n]["fallback"]][:40],
+        "documented_never_read": sorted(n for n in documented if n not in reads and sources and any(
+            re.search(rf"^\s*(?:export\s+)?{re.escape(n)}\s*=", read_text(root / f), re.M) for f in sources))[:20],
+        "scan_truncated": truncated,
+    }
+
+
+# ---------------------------------------------------------------------------
+# First run: the order a stranger meets things, with the install command the
+# lockfile actually implies, so the brief ends in a sequence, not a list.
+# ---------------------------------------------------------------------------
+INSTALL_BY_LOCK = [
+    ("package-lock.json", "npm ci"), ("npm-shrinkwrap.json", "npm ci"),
+    ("pnpm-lock.yaml", "pnpm install --frozen-lockfile"), ("yarn.lock", "yarn install --immutable"),
+    ("bun.lock", "bun install --frozen-lockfile"), ("bun.lockb", "bun install --frozen-lockfile"),
+    ("uv.lock", "uv sync"), ("poetry.lock", "poetry install"), ("Pipfile.lock", "pipenv sync"),
+    ("Cargo.lock", "cargo build"), ("go.sum", "go build ./..."), ("Gemfile.lock", "bundle install"),
+    ("composer.lock", "composer install"),
+]
+INSTALL_BY_MANIFEST = [
+    ("package.json", "npm install"), ("pyproject.toml", "pip install -e ."), ("requirements.txt", "pip install -r requirements.txt"),
+    ("Cargo.toml", "cargo build"), ("go.mod", "go build ./..."), ("Gemfile", "bundle install"), ("composer.json", "composer install"),
+]
+
+
+def first_run(root, scripts, targets, recipes, defs):
+    steps = []
+    installs = [(f, cmd) for f, cmd in INSTALL_BY_LOCK if (root / f).is_file()]
+    if installs:
+        for f, cmd in installs[:3]:
+            steps.append({"step": "install", "command": cmd, "why": f"{f} is committed, so install from the lock, not from the ranges"})
+    else:
+        for f, cmd in INSTALL_BY_MANIFEST:
+            if (root / f).is_file():
+                steps.append({"step": "install", "command": cmd, "why": f"{f} present, no lockfile — versions will float"})
+                break
+    if "dev" in scripts:
+        steps.append({"step": "run", "command": "npm run dev", "why": "package.json scripts.dev"})
+    elif "start" in scripts:
+        steps.append({"step": "run", "command": "npm start", "why": "package.json scripts.start"})
+    for name, cmd, why in (("test", "npm test", "package.json scripts.test"),):
+        if name in scripts:
+            steps.append({"step": "test", "command": cmd, "why": why})
+    if "test" in targets:
+        steps.append({"step": "test", "command": "make test", "why": "Makefile target test"})
+    if "test" in recipes:
+        steps.append({"step": "test", "command": "just test", "why": "justfile recipe test"})
+    if defs.get("cargo"):
+        steps.append({"step": "test", "command": "cargo test", "why": "Cargo.toml present"})
+    if defs.get("go_mod"):
+        steps.append({"step": "test", "command": "go test ./...", "why": "go.mod present"})
+    if (root / "pyproject.toml").is_file() and any((root / d).is_dir() for d in ("tests", "test")):
+        steps.append({"step": "test", "command": "pytest", "why": "pyproject.toml and a tests/ directory"})
+    if defs.get("tox_envs"):
+        steps.append({"step": "test", "command": "tox", "why": "tox envlist: " + ", ".join(sorted(defs["tox_envs"])[:6])})
+    return steps[:8]
+
+
 def classify(cmd, scripts, targets, recipes, defs=None):
     parts = cmd.split()
     tool = parts[0]
@@ -505,6 +668,9 @@ def main():
         "task_names": sorted(defs["task_names"]),
         "compose_services": sorted(defs["compose_services"]),
         "toolchain": toolchain(root),
+        "env": env_audit(root),
+        "first_run": first_run(root, scripts, targets, recipes, defs),
+        "docs_scanned": [f.relative_to(root).as_posix() for f in doc_files(root)],
         "claim_count": len(claims),
         "summary": summary,
         "claims": claims,
