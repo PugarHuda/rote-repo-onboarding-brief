@@ -23,14 +23,16 @@ let failures = 0;
 for (const p of PLAYS) {
   const url = `https://play.modiqo.ai/pugarhuda/${p.name}`;
   const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
-  // The full description sits behind "+ Read the full description"; expand it like a reader would.
-  const expander = page.getByText("Read the full description");
-  if (await expander.count()) await expander.first().click();
   const body = await page.locator("main").innerText();
-  const html = body;
+  // The full description sits in a collapsed <details class="more">; innerText skips it, the DOM has it.
+  const html = await page.content();
   const expected = versionOf(p.manifest);
+  // The registry also serves a machine-readable manifest per version; compare against that too.
+  const manifest = await (await page.request.get(`${url}@${expected}.json`)).json().catch(() => ({}));
+  const registryVersion = manifest?.metadata?.version ?? manifest?.version ?? null;
   const checks = {
     "HTTP 200": res.status() === 200,
+    [`registry JSON declares ${expected}`]: registryVersion === expected,
     [`version v${expected} shown`]: body.includes(`v${expected}`),
     "Public badge": body.includes("Public"),
     "tools python3/sh/git/mktemp": ["python3", "sh", "git", "mktemp"].every((t) => body.includes(t)),
