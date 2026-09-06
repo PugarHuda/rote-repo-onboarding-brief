@@ -180,6 +180,26 @@ def test_docs_lines_env_and_first_run():
         assert steps[0] == ("install", "npm ci") and ("run", "npm run dev") in steps and ("test", "npm test") in steps
 
 
+def test_floor_conflicts_lockfile_conflict_and_broken_doc_links():
+    import os
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        (r / "package.json").write_text(json.dumps({"engines": {"node": ">=20"}}))
+        (r / ".nvmrc").write_text("18\n")                       # contradicts engines
+        (r / "package-lock.json").write_text("{}"); (r / "pnpm-lock.yaml").write_text("lockfileVersion: 9\n")
+        (r / "docs").mkdir(); (r / "docs" / "real.md").write_text("x")
+        (r / "README.md").write_text("[guide](docs/real.md) [gone](docs/missing.md) ![img](assets/logo.png) [ext](https://x.y/z)\n")
+        fx = r / "v.json"; fx.write_text(json.dumps({"node": "20.1.0"}))
+        env = dict(os.environ, CLAIMS_TOOL_VERSIONS=str(fx))
+        p = subprocess.run([sys.executable, str(HERE / "claims.py"), str(r)], capture_output=True, text=True, timeout=60, env=env)
+        assert p.returncode == 0, p.stderr
+        d = json.loads(p.stdout)
+        assert d["floor_conflicts"] == [{"tool": "node", "a": ".nvmrc says 18", "b": "package.json engines.node says >=20"}], d["floor_conflicts"]
+        assert d["lockfile_conflict"]["lockfiles"] == ["package-lock.json", "pnpm-lock.yaml"] and "no packageManager" in d["lockfile_conflict"]["decided_by"]
+        dl = d["doc_links"]
+        assert dl["checked"] == 3 and [b["target"] for b in dl["broken"]] == ["docs/missing.md", "assets/logo.png"]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

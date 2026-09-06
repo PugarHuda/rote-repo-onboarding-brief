@@ -3,7 +3,7 @@
  * @rote-frontmatter
  * ---
  * name: repo-onboarding-brief
- * description: Onboard to an unfamiliar repository, and check its setup instructions instead of trusting them. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. Cross-references every command the README tells you to run against what the project actually defines — package.json scripts, Make targets, justfile recipes, Cargo bins, go run/test paths, pyproject scripts, tox envs, nox sessions, Taskfile tasks, compose services, Dockerfiles, and npx binaries declared as dependencies — and against the tools present on your machine — including their versions against the floors the project declares in engines, .nvmrc, requires-python, .python-version, go.mod, rust-toolchain and .tool-versions, read by running `--version` on your own tools, never the project's code — so a documented-but-nonexistent command, or a Node two majors too old, is named before you lose an afternoon to it. Reads README, CONTRIBUTING and docs/ and cites file and line for every command. Lists the environment variables the code reads that no .env.example or doc admits to, split into the ones with no fallback (the process dies on first use) and the ones with a default. Ends with FIRST RUN, IN ORDER — toolchain, the install command the committed lockfile implies, env, run, test — so the brief is a sequence, not a list. Also reports stack and version floors, entry points, a layout map, risk flags (no lockfile, no tests, no CI, committed secret-shaped files), and an explicit list of what it could not determine. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
+ * description: Onboard to an unfamiliar repository, and check its setup instructions instead of trusting them. Read-only, no credentials, no adapters, and nothing the repository ships is ever executed. Cross-references every command the README tells you to run against what the project actually defines — package.json scripts, Make targets, justfile recipes, Cargo bins, go run/test paths, pyproject scripts, tox envs, nox sessions, Taskfile tasks, compose services, Dockerfiles, and npx binaries declared as dependencies — and against the tools present on your machine — including their versions against the floors the project declares in engines, .nvmrc, requires-python, .python-version, go.mod, rust-toolchain and .tool-versions, read by running `--version` on your own tools, never the project's code — so a documented-but-nonexistent command, or a Node two majors too old, is named before you lose an afternoon to it. Reads README, CONTRIBUTING and docs/ and cites file and line for every command. Lists the environment variables the code reads that no .env.example or doc admits to, split into the ones with no fallback (the process dies on first use) and the ones with a default. Names the floors that contradict each other (a .nvmrc pin an engines range rejects), a second committed lockfile with nothing choosing between them, relative doc links that point at files the tree does not have, and the files that exist in your checkout but git does not track — a stranger's clone will not have them. Ends with FIRST RUN, IN ORDER — toolchain, the install command the committed lockfile implies, env, run, test — so the brief is a sequence, not a list. Also reports stack and version floors, entry points, a layout map, risk flags (no lockfile, no tests, no CI, committed secret-shaped files), and an explicit list of what it could not determine. A local path is inspected in place; a URL is shallow-cloned to a temp directory.
  * source: https://github.com/PugarHuda/rote-repo-onboarding-brief
  * tags:
  * - domain-code-analysis
@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.4.1
+ *   version: 0.5.0
  *   status: released
  *   kind: atomic
  *   flow_type: parallel
@@ -210,6 +210,17 @@ if (!probe) {
     }
     const bad = tc.filter((t) => t["status"] === "below_floor" || t["status"] === "missing");
     if (bad.length) lines.push(`  ${bad.length} floor(s) this machine does not meet. Fix these before trusting any command below.`);
+    const fc = (claims?.["floor_conflicts"] as Dict[]) ?? [];
+    for (const c of fc) {
+      lines.push(`  CONTRADICTION  ${S(c["tool"])}: ${S(c["a"])}, but ${S(c["b"])} — both cannot be met.`);
+      unclear.push(`Which ${S(c["tool"])} version is actually required — the repository declares two that contradict each other.`);
+    }
+    lines.push("");
+  }
+  const lc = claims?.["lockfile_conflict"] as Dict | null;
+  if (lc) {
+    lines.push(`LOCKFILE CONFLICT  ${((lc["lockfiles"] as string[]) ?? []).join(" + ")} are all committed; decided by ${S(lc["decided_by"])}.`);
+    if (!S(lc["decided_by"]).startsWith("packageManager")) unclear.push("Which package manager this project really uses — two lockfiles are committed and nothing picks one.");
     lines.push("");
   }
 
@@ -314,9 +325,25 @@ if (!probe) {
   }
   lines.push("");
 
+  // 5b -- links the docs make that the tree cannot honour --------------------
+  const dl = (claims?.["doc_links"] as Dict) ?? null;
+  if (dl && Number(dl["checked"]) > 0) {
+    const broken = (dl["broken"] as Dict[]) ?? [];
+    lines.push(`DOC LINKS  ${S(dl["checked"])} relative links checked · ${S(dl["broken_count"])} point at files that do not exist`);
+    for (const b of broken.slice(0, 10)) lines.push(`  ${S(b["doc"])}:L${S(b["line"])}  ${S(b["target"])}`);
+    if (Number(dl["broken_count"]) > 10) lines.push(`  … ${Number(dl["broken_count"]) - 10} more`);
+    lines.push("");
+  }
+
   // 6 -----------------------------------------------------------------
   lines.push("RISK FLAGS");
   const risks: string[] = [];
+  const lof = probe["local_only_files"] as Dict | null;
+  if (lof && Number(lof["count"]) > 0) {
+    const secretish = (lof["secret_shaped"] as string[]) ?? [];
+    risks.push(`${S(lof["count"])} file(s) exist here but git does not track them — a fresh clone will not have them` +
+      (secretish.length ? ` (including ${secretish.join(", ")})` : "") + `. e.g. ${((lof["sample"] as string[]) ?? []).slice(0, 4).join(", ")}`);
+  }
   if (!locks.length) risks.push("No lockfile committed — builds are not reproducible.");
   if (!((probe["test_dirs"] as string[]) ?? []).length) risks.push("No test directory found.");
   if (!((probe["ci"] as string[]) ?? []).length) risks.push("No CI configuration found.");
@@ -357,6 +384,10 @@ if (!probe) {
     toolchain: tc,
     environment: env,
     first_run: fr,
+    floor_conflicts: claims?.["floor_conflicts"] ?? [],
+    lockfile_conflict: lc,
+    doc_links: dl,
+    local_only_files: lof,
     claim_summary: claims?.["summary"] ?? null,
     documented_but_undefined: rotCount,
     risk_flags: risks,

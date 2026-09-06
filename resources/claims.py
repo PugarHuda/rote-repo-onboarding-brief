@@ -358,6 +358,61 @@ def toolchain(root):
     return rows
 
 
+def floor_conflicts(rows):
+    """Two declarations for the same tool that cannot both be met: a pin (.nvmrc 18) that
+    the range (engines >=20) rejects. The repository contradicts itself; the reader cannot win."""
+    out = []
+    by_tool = {}
+    for r in rows:
+        by_tool.setdefault(r["tool"], []).append(r)
+    for tool, decls in by_tool.items():
+        for a in decls:
+            pin = a["declared"].lstrip("=v")
+            if not re.match(r"^\d+(\.\d+){0,2}$", pin):
+                continue  # only a concrete pin can be tested against the other ranges
+            probe_version = pin if pin.count(".") == 2 else pin + (".0" * (2 - pin.count(".")))
+            for b in decls:
+                if b is a or b["declared"] == a["declared"]:
+                    continue
+                if satisfies(b["declared"], probe_version) is False:
+                    out.append({"tool": tool, "a": f"{a['source']} says {a['declared']}", "b": f"{b['source']} says {b['declared']}"})
+    return out
+
+
+def lockfile_conflict(root):
+    """More than one Node lockfile committed: which install is real? packageManager decides if set."""
+    present = [f for f in ("package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb") if (root / f).is_file()]
+    if len(present) < 2:
+        return None
+    pm = None
+    try:
+        pm = (json.loads(read_text(root / "package.json")).get("packageManager") or "").split("@")[0] or None
+    except Exception:
+        pass
+    return {"lockfiles": present, "decided_by": f"packageManager = {pm}" if pm else "nothing — no packageManager field; whichever a contributor runs wins"}
+
+
+LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)\s#?]+)(?:[#?][^)]*)?\)")
+
+
+def broken_doc_links(root):
+    """Relative links and images in the docs that point at files the repository does not have."""
+    broken, checked = [], 0
+    for doc in doc_files(root):
+        text = read_text(doc)
+        for m in LINK_RE.finditer(text):
+            target = m.group(1)
+            if re.match(r"^[a-z][a-z0-9+.-]*:", target) or target.startswith(("//", "mailto")):
+                continue  # absolute URL
+            checked += 1
+            base = doc.parent if not target.startswith("/") else root
+            if not (base / target.lstrip("/")).exists():
+                line = text.count("\n", 0, m.start()) + 1
+                broken.append({"doc": doc.relative_to(root).as_posix(), "line": line, "target": target})
+    return {"checked": checked, "broken": broken[:30], "broken_count": len(broken)}
+
+
+
 # ---------------------------------------------------------------------------
 # Environment variables the code reads, versus the ones the docs admit to.
 # The undocumented-and-no-fallback ones are the trap that kills a first run.
@@ -668,6 +723,9 @@ def main():
         "task_names": sorted(defs["task_names"]),
         "compose_services": sorted(defs["compose_services"]),
         "toolchain": toolchain(root),
+        "floor_conflicts": floor_conflicts(toolchain(root)),
+        "lockfile_conflict": lockfile_conflict(root),
+        "doc_links": broken_doc_links(root),
         "env": env_audit(root),
         "first_run": first_run(root, scripts, targets, recipes, defs),
         "docs_scanned": [f.relative_to(root).as_posix() for f in doc_files(root)],

@@ -96,6 +96,22 @@ def test_missing_dir_is_an_error_not_a_crash():
     assert "error" in json.loads(p.stdout)
 
 
+def test_local_only_files_are_named_as_a_stranger_trap():
+    import os, shutil
+    if not shutil.which("git"):
+        print("skip: git not on PATH"); return
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@x", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@x")
+        g = lambda *a: subprocess.run(["git", "-C", str(r), *a], check=True, capture_output=True, env=env)
+        g("init", "-q"); (r / "README.md").write_text("# x\n"); (r / ".gitignore").write_text(".env\n")
+        g("add", "-A"); g("commit", "-q", "-m", "one")
+        (r / ".env").write_text("SECRET=1\n"); (r / "helper.sh").write_text("echo\n")
+        d = json.loads(subprocess.run([sys.executable, str(HERE / "probe.py"), str(r)], capture_output=True, text=True, timeout=60).stdout)
+        lof = d["local_only_files"]
+        assert lof["count"] == 2 and sorted(lof["sample"]) == [".env", "helper.sh"] and lof["secret_shaped"] == [".env"], lof
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

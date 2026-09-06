@@ -215,6 +215,16 @@ def main():
     facts["entry_candidates"] = [e for e in ENTRY_HINTS if (root / e).exists()]
     facts["structure"] = structure(root)
     facts["committed_secret_files"] = [s for s in SECRET_FILES if (root / s).exists()]
+    # A local checkout carries files git does not track (.env, build output, a
+    # helper script). A stranger's clone will not have them. Name them.
+    try:
+        st = run(["git", "status", "--porcelain", "--untracked-files=all", "--ignored"], cwd=root)
+        untracked = [l[3:] for l in (st or "").splitlines() if l.startswith(("??", "!!"))]
+        untracked = [u for u in untracked if not u.startswith((".git/", "node_modules/", ".venv/", "venv/", "__pycache__", "dist/", "build/", "target/", ".next/")) and "/node_modules/" not in u]
+        facts["local_only_files"] = {"count": len(untracked), "sample": untracked[:12],
+                                     "secret_shaped": [u for u in untracked if u.split("/")[-1] in SECRET_FILES or u.startswith(".env")][:10]}
+    except Exception:
+        facts["local_only_files"] = None
     facts["has_dockerfile"] = (root / "Dockerfile").exists()
     # Repos spell these many ways: LICENSE, license, LICENSE.md, LICENCE, COPYING.
     # Match on the stem, case-insensitively, or the brief will claim a file is

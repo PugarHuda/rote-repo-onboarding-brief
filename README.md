@@ -93,6 +93,19 @@ during a stranger's first run. The brief then ends with **FIRST RUN, IN ORDER** 
 install command the committed lockfile implies (`npm ci`, `pnpm install --frozen-lockfile`,
 `uv sync`, `cargo build`, …), env, run, test — so it reads as a sequence, not a list.
 
+## Taken from the neighbours, then finished
+
+Four things the closest registry Plays each do one of; the brief now does all four in one run:
+
+- **local-only files** (`stranger-test`'s idea): files in your checkout that git does not track,
+  `.env` included, named as a stranger trap because a fresh clone will not have them
+- **contradicting floors** (`first-run-reality`'s idea): a `.nvmrc` pin that the `engines` range
+  rejects, so the reader cannot satisfy both
+- **lockfile conflict** (`clone-ready`'s idea): two Node lockfiles committed, decided by
+  `packageManager` or by nobody
+- **broken doc links** (`readme-rot`'s idea): relative links and images in README, CONTRIBUTING
+  and docs/ that point at files the tree does not have, with file and line
+
 ## Your machine vs the floors the project declares
 
 Since 0.3.0 the brief compares what the repository demands with what you actually have: `engines`,
