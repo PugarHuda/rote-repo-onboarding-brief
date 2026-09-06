@@ -105,10 +105,15 @@ def fetch_version(name, version):
         return None
 
 
+INSTALL_HOOKS = ("preinstall", "install", "postinstall")
+
+
 def summarize(meta):
     if not isinstance(meta, dict):
         return None
     user = meta.get("_npmUser") or {}
+    scripts = meta.get("scripts") if isinstance(meta.get("scripts"), dict) else {}
+    dist = meta.get("dist") if isinstance(meta.get("dist"), dict) else {}
     return {
         "version": meta.get("version"),
         "publisher": (user.get("name") if isinstance(user, dict) else None),
@@ -117,6 +122,12 @@ def summarize(meta):
         "maintainers": sorted(m.get("name") for m in (meta.get("maintainers") or [])
                               if isinstance(m, dict) and m.get("name"))[:8],
         "deprecated": bool(meta.get("deprecated")),
+        # Lifecycle hooks that run arbitrary code on `npm install`. A hook that
+        # appears in a newer version is the shape of every recent npm worm.
+        "install_scripts": sorted(k for k in INSTALL_HOOKS if scripts.get(k)),
+        # npm provenance: a Sigstore attestation linking the tarball to the CI run
+        # that built it. Present, then absent, means the publish path changed.
+        "provenance": bool(dist.get("attestations")),
     }
 
 
@@ -140,6 +151,12 @@ def check(name, locked_version):
         row["findings"].append("MAINTAINERS_REPLACED")
     if latest["deprecated"]:
         row["findings"].append("LATEST_DEPRECATED")
+    added_hooks = sorted(set(latest["install_scripts"]) - set(have["install_scripts"]))
+    if added_hooks:
+        row["findings"].append("INSTALL_SCRIPT_ADDED")
+        row["install_scripts_added"] = added_hooks
+    if have["provenance"] and not latest["provenance"]:
+        row["findings"].append("PROVENANCE_DROPPED")
     row["status"] = "FLAGGED" if row["findings"] else "BEHIND"
     return row
 

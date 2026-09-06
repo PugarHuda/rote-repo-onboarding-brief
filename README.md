@@ -1,5 +1,10 @@
 # repo-onboarding-brief
 
+[![repo-onboarding-brief](https://img.shields.io/badge/rote-repo--onboarding--brief-blue)](https://play.modiqo.ai/pugarhuda/repo-onboarding-brief)
+[![monorepo-workspace-map](https://img.shields.io/badge/rote-monorepo--workspace--map-blue)](https://play.modiqo.ai/pugarhuda/monorepo-workspace-map)
+[![codeowners-drift](https://img.shields.io/badge/rote-codeowners--drift-blue)](https://play.modiqo.ai/pugarhuda/codeowners-drift)
+[![dependency-trust-diff](https://img.shields.io/badge/rote-dependency--trust--diff-blue)](https://play.modiqo.ai/pugarhuda/dependency-trust-diff)
+
 A [Rote](https://www.modiqo.ai) Play that briefs you on an unfamiliar repository — and **checks the
 setup instructions instead of trusting them**.
 
@@ -118,9 +123,14 @@ findings carry it:
 
 It reads the one file GitHub uses when several are present (`.github/`, root, `docs/`, in that
 order) and says which. Matching follows GitHub's documented semantics, including that `docs/*`
-does not descend. Syntax the forge rejects (negation, malformed handles, GitLab section headers)
-is flagged. Whether a team exists and whether branch protection requires the review need the forge
-API, so both are listed under **NOT CHECKED** rather than assumed fine.
+does not descend. **GitLab files** (`.gitlab/CODEOWNERS` or `[Section]` headers) are evaluated
+the GitLab way: sections independent, `^[Optional]` sections and `[Section][n]` approval counts
+read, ownerless rules inheriting the section default, and files owned only through an optional
+section counted separately. Syntax the forge rejects is flagged.
+
+`verify_owners=true` asks `api.github.com` anonymously whether each `@user` and `@org` exists and
+reports missing handles. Team membership is only visible to an authenticated member, so it is
+never claimed; that and branch protection stay under **NOT CHECKED** rather than assumed fine.
 
 Verified on `hashicorp/terraform` (3 rules pointing at provisioners that no longer exist) and
 `home-assistant/core` (2,183 rules over 27,740 files, 90.1% covered, 2 stale). Source under
@@ -138,9 +148,14 @@ maintainer handover, a sold project, and a takeover unchanged, so the name is no
 
 For every package the lockfile pins (direct dependencies by default, `scope=all` for the tree), it
 asks the public npm registry for the locked version and for `latest`, and reports each as `CURRENT`,
-`BEHIND`, `FLAGGED` (`PUBLISHER_CHANGED`, `LICENSE_CHANGED`, `MAINTAINERS_REPLACED`,
-`LATEST_DEPRECATED`) or `UNCHECKED` when the registry did not answer. A fetch failure is never
-reported as "same".
+`BEHIND`, `FLAGGED` or `UNCHECKED` when the registry did not answer. A fetch failure is never
+reported as "same". Flags:
+
+- `PUBLISHER_CHANGED`, `MAINTAINERS_REPLACED`, `LICENSE_CHANGED`, `LATEST_DEPRECATED`
+- `INSTALL_SCRIPT_ADDED` — the newer version gains a `preinstall`/`install`/`postinstall` hook,
+  code that runs on `npm install`; the shape of every recent npm worm
+- `PROVENANCE_DROPPED` — the version you have carries a Sigstore build attestation and the newer
+  one does not, so the publish path changed
 
 What it says it cannot know: a publisher change is the account that ran `npm publish`, so a
 handover to a CI token looks identical to a takeover. On `axios/axios` the first run flagged three

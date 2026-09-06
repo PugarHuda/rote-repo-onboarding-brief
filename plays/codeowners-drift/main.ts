@@ -3,7 +3,7 @@
  * @rote-frontmatter
  * ---
  * name: codeowners-drift
- * description: Audit a repository's CODEOWNERS file against the files it actually tracks. A CODEOWNERS file is written once and then the tree moves out from under it, so review routing silently stops working — a rule points at a directory that was renamed, a broad rule added at the bottom quietly overrides every rule above it because the LAST match wins, and half the repository ends up with no owner and no required reviewer. This reports each rule with how many tracked files it matches and how many it still owns after later rules override it, names the rules that match nothing and the rules that are fully shadowed, lists every file no rule covers grouped by top-level directory with a coverage percentage, and flags syntax the forge will reject — negation, malformed owner handles, GitLab section headers in a GitHub file. It reads the one file GitHub actually uses when several are present and says which. Matching follows GitHub's documented semantics, including that docs/* does not descend into subdirectories. What it cannot check is stated in the output — whether each team exists and whether branch protection actually requires a code owner review need the forge API, so they are listed as not checked rather than assumed fine. Read-only, no credentials, no adapters. A local path is inspected in place, a URL is shallow-cloned to a temp directory, and nothing the repository ships is ever executed.
+ * description: Audit a repository's CODEOWNERS file against the files it actually tracks. A CODEOWNERS file is written once and then the tree moves out from under it, so review routing silently stops working — a rule points at a directory that was renamed, a broad rule added at the bottom quietly overrides every rule above it because the LAST match wins, and half the repository ends up with no owner and no required reviewer. This reports each rule with how many tracked files it matches and how many it still owns after later rules override it, names the rules that match nothing and the rules that are fully shadowed, lists every file no rule covers grouped by top-level directory with a coverage percentage, and flags syntax the forge will reject — negation, malformed owner handles, GitLab section headers in a GitHub file. It reads the one file GitHub actually uses when several are present and says which. Matching follows GitHub's documented semantics, including that docs/* does not descend into subdirectories. GitLab files are recognised too (a .gitlab/CODEOWNERS or [Section] headers) and evaluated the GitLab way — sections independent, optional ^[Sections] and [Section][n] approval counts read, a rule with no owner inheriting the section default. With verify_owners=true it asks api.github.com anonymously whether each @user and @org exists and reports missing handles, while saying plainly that team membership needs a token and is never claimed. What it cannot check is stated in the output — whether a team has write access and whether branch protection actually requires a code owner review need an authenticated API, so they are listed as not checked rather than assumed fine. Read-only, no credentials, no adapters. A local path is inspected in place, a URL is shallow-cloned to a temp directory, and nothing the repository ships is ever executed.
  * source: https://github.com/PugarHuda/rote-repo-onboarding-brief
  * tags:
  * - domain-code-analysis
@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.1.1
+ *   version: 0.2.0
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
@@ -44,6 +44,11 @@
  *   required: false
  *   default: ''
  *   description: Branch or tag to inspect. Ignored for a local path; defaults to the repository default branch.
+ * - name: verify_owners
+ *   type: string
+ *   required: false
+ *   default: 'false'
+ *   description: '`true` asks api.github.com anonymously whether each @user and @org exists (60 requests per hour, capped at 30 owners). Team membership needs a token and is never claimed.'
  * steps:
  *   resolve:
  *     type: process.exec
@@ -62,6 +67,7 @@
  *     - python3
  *     - '@resource{codeowners.py}'
  *     - '@resolve{.stdout.text}'
+ *     - $verify_owners
  * ---
  */
 
@@ -137,9 +143,22 @@ if (!data) {
   const others = (data["other_codeowners_files"] as string[]) ?? [];
 
   const lines: string[] = [];
-  lines.push(`CODEOWNERS AUDIT · ${S(data["codeowners_file"])} · ${S(data["rule_count"])} rules · ` +
-    `${S(data["file_count"])} tracked files`);
+  const sections = (data["sections"] as Dict[]) ?? [];
+  const ownerCheck = (data["owner_check"] as Dict[] | null) ?? null;
+  lines.push(`CODEOWNERS AUDIT · ${S(data["codeowners_file"])} · ${S(data["forge"])} semantics · ` +
+    `${S(data["rule_count"])} rules · ${S(data["file_count"])} tracked files`);
   lines.push("");
+  if (sections.length) {
+    lines.push("SECTIONS (GitLab: each section is evaluated on its own, last match wins inside it)");
+    for (const sec of sections) {
+      const flags = [sec["optional"] ? "optional" : "", sec["approvals"] ? `${S(sec["approvals"])} approvals` : ""].filter(Boolean).join(", ");
+      lines.push(`  [${S(sec["name"])}]  ${S(sec["rules"])} rules  ${((sec["default_owners"] as string[]) ?? []).join(" ")}${flags ? "  (" + flags + ")" : ""}`);
+    }
+    if (Number(data["optional_only_count"]) > 0) {
+      lines.push(`  ${S(data["optional_only_count"])} files are owned ONLY through an optional section — no approval is required for them.`);
+    }
+    lines.push("");
+  }
   if (others.length) {
     lines.push(`  Also present but NOT read by GitHub: ${others.join(", ")}`);
     lines.push("");
@@ -202,6 +221,23 @@ if (!data) {
     lines.push("");
   }
 
+  if (ownerCheck) {
+    const missing = ownerCheck.filter((c) => c["status"] === "missing");
+    const unchecked = ownerCheck.filter((c) => c["status"] === "unchecked");
+    lines.push(`OWNER CHECK (api.github.com, anonymous)  ${ownerCheck.length} owners · ${missing.length} missing · ${unchecked.length} unchecked`);
+    for (const c of ownerCheck) {
+      if (c["status"] === "missing" || c["status"] === "unchecked") lines.push(`  ${S(c["status"]).toUpperCase().padEnd(9)} ${S(c["owner"])}  ${S(c["why"])}`);
+    }
+    if (ownerCheck.some((c) => c["status"] === "org_exists")) {
+      lines.push("  @org/team owners: the organization exists; the team itself is only visible to an authenticated member.");
+    }
+    if (Number(data["owner_check_omitted"]) > 0) lines.push(`  ${S(data["owner_check_omitted"])} more owners not checked (cap of 30 per run).`);
+    lines.push("");
+  } else if (data["owner_check_note"]) {
+    lines.push(`OWNER CHECK  ${S(data["owner_check_note"])}`);
+    lines.push("");
+  }
+
   if (problems.length) {
     lines.push("SYNTAX");
     for (const p of problems) lines.push(`  L${S(p["line"])}  ${S(p["why"])}`);
@@ -211,13 +247,14 @@ if (!data) {
   lines.push("NOT CHECKED");
   for (const n of (data["not_checked"] as string[]) ?? []) lines.push(`  ${n}`);
 
+  const nMissing = ownerCheck ? ownerCheck.filter((c) => c["status"] === "missing").length : 0;
   const nStale = Number(data["stale_count"] ?? stale.length);
   const nShadow = Number(data["shadowed_count"] ?? shadowed.length);
   const nProb = Number(data["problem_count"] ?? problems.length);
-  const issues = nStale + nShadow + nProb;
+  const issues = nStale + nShadow + nProb + nMissing;
   const verdict = issues === 0
     ? `${S(data["coverage_pct"])}% covered, every rule live`
-    : `${S(data["coverage_pct"])}% covered · ${nStale} stale · ${nShadow} shadowed · ${nProb} syntax`;
+    : `${S(data["coverage_pct"])}% covered · ${nStale} stale · ${nShadow} shadowed · ${nProb} syntax${nMissing ? ` · ${nMissing} missing owner(s)` : ""}`;
 
   out.human(lines.join("\n"));
   out.summary(verdict);
@@ -242,6 +279,11 @@ if (!data) {
     unowned_sample: data["unowned_sample"],
     owners,
     problems,
+    forge: data["forge"],
+    sections,
+    optional_only_count: data["optional_only_count"],
+    owner_check: ownerCheck,
+    owner_check_omitted: data["owner_check_omitted"],
     not_checked: data["not_checked"],
   });
 }

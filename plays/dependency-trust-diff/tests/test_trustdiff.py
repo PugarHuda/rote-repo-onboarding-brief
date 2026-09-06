@@ -18,9 +18,12 @@ def run(root, fixtures, *extra):
     return json.loads(p.stdout)
 
 
-def meta(version, publisher, license, maintainers, deprecated=False):
+def meta(version, publisher, license, maintainers, deprecated=False, hooks=(), provenance=False):
     d = {"version": version, "_npmUser": {"name": publisher}, "license": license,
-         "maintainers": [{"name": m} for m in maintainers]}
+         "maintainers": [{"name": m} for m in maintainers],
+         "scripts": {h: "node evil.js" for h in hooks}, "dist": {}}
+    if provenance:
+        d["dist"]["attestations"] = {"url": "https://registry.npmjs.org/-/npm/v1/attestations/x", "provenance": {"predicateType": "https://slsa.dev/provenance/v1"}}
     if deprecated:
         d["deprecated"] = "use something else"
     return d
@@ -39,12 +42,13 @@ def test_v3_lockfile_direct_scope_and_findings():
             "lockfileVersion": 3,
             "packages": {
                 "": {"dependencies": {"left-pad": "^1.0.0", "@scope/pkg": "^2.0.0", "steady": "^1.0.0",
-                                      "ghost": "^1.0.0", "old": "^1.0.0"}},
+                                      "ghost": "^1.0.0", "old": "^1.0.0", "worm": "^3.0.0"}},
                 "node_modules/left-pad": {"version": "1.0.0"},
                 "node_modules/@scope/pkg": {"version": "2.0.0"},
                 "node_modules/steady": {"version": "1.0.0"},
                 "node_modules/ghost": {"version": "1.0.0"},
                 "node_modules/old": {"version": "1.0.0"},
+                "node_modules/worm": {"version": "3.0.0"},
                 "node_modules/transitive": {"version": "9.9.9"},
                 "node_modules/old/node_modules/nested": {"version": "0.1.0"},
             }}))
@@ -61,24 +65,30 @@ def test_v3_lockfile_direct_scope_and_findings():
         fixture(fx, "steady", "latest", version="1.0.0", publisher="x", license="MIT", maintainers=["x"])
         # ghost: no fixture for latest -> UNCHECKED
         fixture(fx, "ghost", "1.0.0", publisher="x", license="MIT", maintainers=["x"])
+        # worm: the newer version drops its build attestation and grows a postinstall hook
+        fixture(fx, "worm", "3.0.0", publisher="w", license="MIT", maintainers=["w"], provenance=True)
+        fixture(fx, "worm", "latest", version="3.0.1", publisher="w", license="MIT", maintainers=["w"], hooks=("postinstall",))
         # old: latest deprecated
         fixture(fx, "old", "1.0.0", publisher="x", license="MIT", maintainers=["x"])
         fixture(fx, "old", "latest", version="1.1.0", publisher="x", license="MIT", maintainers=["x"], deprecated=True)
 
         d = run(r, fx)
         assert d["ok"] and d["lockfile"] == "package-lock.json"
-        assert d["pinned_total"] == 7 and d["direct_total"] == 5 and d["checked"] == 5
-        assert d["counts"] == {"BEHIND": 1, "CURRENT": 1, "FLAGGED": 2, "UNCHECKED": 1}
+        assert d["pinned_total"] == 8 and d["direct_total"] == 6 and d["checked"] == 6
+        assert d["counts"] == {"BEHIND": 1, "CURRENT": 1, "FLAGGED": 3, "UNCHECKED": 1}
         flagged = {f["name"]: f["findings"] for f in d["flagged"]}
         assert flagged["left-pad"] == ["PUBLISHER_CHANGED", "LICENSE_CHANGED", "MAINTAINERS_REPLACED"]
         assert flagged["old"] == ["LATEST_DEPRECATED"]
+        assert flagged["worm"] == ["INSTALL_SCRIPT_ADDED", "PROVENANCE_DROPPED"]
+        worm = next(f for f in d["flagged"] if f["name"] == "worm")
+        assert worm["install_scripts_added"] == ["postinstall"]
         assert d["behind"] == [{"name": "@scope/pkg", "locked": "2.0.0", "latest": "2.1.0"}]
         assert d["unchecked"][0]["name"] == "ghost" and "latest" in d["unchecked"][0]["why"]
         assert d["current"] == ["steady"]
 
         # scope=all reaches the transitive package too, and max_packages truncates honestly
         d2 = run(r, fx, "scope=all", "max_packages=3")
-        assert d2["checked"] == 3 and d2["skipped_over_max"] == 4
+        assert d2["checked"] == 3 and d2["skipped_over_max"] == 5
 
 
 def test_non_npm_locks_are_named_not_faked():

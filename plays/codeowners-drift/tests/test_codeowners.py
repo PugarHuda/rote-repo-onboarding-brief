@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Self-check for codeowners.py. Run: python3 test_codeowners.py"""
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -107,6 +108,59 @@ def test_huge_rule_files_stay_under_rotes_64kb_stdout_cap():
         assert d["rule_count"] == 2501 and len(d["rules"]) == 150 and d["rules_omitted"] == 2351
         assert d["stale_count"] == 2500 and len(d["stale_rules"]) == 60
         assert d["coverage_pct"] == 50.0  # src/keep.py owned, CODEOWNERS itself not
+
+
+def test_gitlab_sections_are_evaluated_independently():
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        touch(r, "app/main.py", "docs/guide.md", "lib/x.py")
+        (r / ".gitlab").mkdir()
+        (r / ".gitlab" / "CODEOWNERS").write_text("\n".join([
+            "[Backend] @backend",
+            "app/            ",            # inherits @backend
+            "lib/  @lib-team",
+            "^[Docs][2] @writers",         # optional section, 2 approvals
+            "docs/",
+            "[Everything]",
+            "*  @qa",                      # last match in ITS section; does not shadow other sections
+            "",
+        ]))
+        d = run(r)
+        assert d["forge"] == "gitlab" and d["codeowners_file"] == ".gitlab/CODEOWNERS"
+        names = [s["name"] for s in d["sections"]]
+        assert names == ["Backend", "Docs", "Everything"]
+        docs = next(s for s in d["sections"] if s["name"] == "Docs")
+        assert docs["optional"] is True and docs["approvals"] == 2 and docs["default_owners"] == ["@writers"]
+        # every rule still owns something: sections do not override each other
+        assert d["shadowed_count"] == 0 and d["stale_count"] == 0
+        assert rule(d, "app/")["owners"] == ["@backend"] and rule(d, "docs/")["owners"] == ["@writers"]
+        # docs/guide.md is owned by an optional section AND by [Everything]'s required rule -> required
+        assert d["optional_only_count"] == 0
+        assert d["unowned_count"] == 0 and d["coverage_pct"] == 100.0
+        owners = {o["owner"]: o["files"] for o in d["owners"]}
+        assert owners == {"@qa": 4, "@backend": 1, "@lib-team": 1, "@writers": 1}
+
+
+def test_owner_verification_uses_api_status_and_never_claims_teams():
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        touch(r, "a.py")
+        (r / "CODEOWNERS").write_text("* @octocat @ghost-user-that-does-not-exist @acme/backend @nope-org/x dev@example.com\n")
+        fx = r / "api.json"
+        fx.write_text(json.dumps({"users/octocat": 200, "users/ghost-user-that-does-not-exist": 404,
+                                  "orgs/acme": 200, "orgs/nope-org": 404}))
+        env = dict(os.environ, CODEOWNERS_API_FIXTURES=str(fx))
+        p = subprocess.run([sys.executable, str(HERE / "codeowners.py"), str(r), "verify_owners=true"],
+                           capture_output=True, text=True, timeout=60, env=env)
+        assert p.returncode == 0, p.stderr
+        d = json.loads(p.stdout)
+        st = {c["owner"]: c["status"] for c in d["owner_check"]}
+        assert st == {"@octocat": "exists", "@ghost-user-that-does-not-exist": "missing",
+                      "@acme/backend": "org_exists", "@nope-org/x": "missing", "dev@example.com": "skipped"}
+        assert "needs an authenticated token" in next(c for c in d["owner_check"] if c["owner"] == "@acme/backend")["why"]
+        # without the flag nothing is fetched and the output says how to turn it on
+        d0 = run(r)
+        assert d0["owner_check"] is None and "verify_owners=true" in d0["not_checked"][0]
 
 
 if __name__ == "__main__":
