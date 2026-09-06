@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.7.0
+ *   version: 0.7.1
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
@@ -186,8 +186,10 @@ if (!data) {
       }
     }
     lines.push("");
-    lines.push("  A changed publisher is the account that ran `npm publish`. A handover to a CI");
-    lines.push("  token or a co-maintainer looks identical to a takeover: look, do not assume.");
+    if (flagged.some((f) => ((f["findings"] as string[]) ?? []).includes("PUBLISHER_CHANGED"))) {
+      lines.push("  A changed publisher is the account that ran the publish. A handover to a CI");
+      lines.push("  token or a co-maintainer looks identical to a takeover: look, do not assume.");
+    }
   } else {
     lines.push("  None among the checked packages.");
   }

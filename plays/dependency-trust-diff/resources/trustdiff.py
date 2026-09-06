@@ -561,7 +561,7 @@ def audit(root, scope="direct", max_packages=200):
         "not_checked": ([
             "who uploaded each PyPI release — PyPI's JSON API does not expose the uploader, so publisher changes cannot be seen here; license, yanked status, requires-python and OSV advisories can",
         ] if ecosystem == "PyPI" else []) + [
-            "PUBLISHER_CHANGED is the account that ran `npm publish`; a handover to a CI token or a co-maintainer looks identical to a takeover",
+            "PUBLISHER_CHANGED is the account that ran the publish (npm or crates.io); a handover to a CI token or a co-maintainer looks identical to a takeover",
             "whether the newer version's code changed behaviour — this reads metadata, never tarballs",
             "transitive packages unless scope=all; version ranges in package.json are ignored, only the lockfile pin counts",
         ],
