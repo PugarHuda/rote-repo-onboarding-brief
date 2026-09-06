@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.5.0
+ *   version: 0.5.2
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
@@ -54,6 +54,9 @@
  *   required: false
  *   default: '200'
  *   description: Upper bound on packages queried (two registry GETs each). Packages beyond it are counted as skipped, never assumed fine.
+ * presentation_fixtures:
+ *   resolve: resources/presentation-fixtures/resolve/fixture.yaml
+ *   diff: resources/presentation-fixtures/diff/fixture.yaml
  * steps:
  *   resolve:
  *     type: process.exec

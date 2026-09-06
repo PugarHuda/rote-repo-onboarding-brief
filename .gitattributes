@@ -4,3 +4,7 @@
 *.py text eol=lf
 *.ts text eol=lf
 *.toml text eol=lf
+
+# Ensure fixtures and scripts keep LF on every platform
+resources/presentation-fixtures/** text eol=lf
+plays/*/resources/presentation-fixtures/** text eol=lf

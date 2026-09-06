@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.3.0
+ *   version: 0.3.1
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
@@ -49,6 +49,9 @@
  *   required: false
  *   default: 'false'
  *   description: '`true` asks api.github.com anonymously whether each @user and @org exists (60 requests per hour, capped at 30 owners). Team membership needs a token and is never claimed.'
+ * presentation_fixtures:
+ *   resolve: resources/presentation-fixtures/resolve/fixture.yaml
+ *   audit: resources/presentation-fixtures/audit/fixture.yaml
  * steps:
  *   resolve:
  *     type: process.exec

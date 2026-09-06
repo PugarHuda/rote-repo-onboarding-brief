@@ -3,6 +3,6 @@ kind: process.exec
 status:
   exit: { kind: code, code: 0 }
   duration_ms: 3500
-  timeout_ms: 180000
+  timeout_ms: 120000
 stdout: resources/presentation-fixtures/resolve/stdout.txt
 stderr: resources/presentation-fixtures/resolve/stderr.txt

@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.5.0
+ *   version: 0.5.2
  *   status: released
  *   kind: atomic
  *   flow_type: parallel
@@ -55,6 +55,10 @@
  *   required: false
  *   default: ''
  *   description: Branch or tag to inspect. Ignored for a local path; defaults to the repository default branch.
+ * presentation_fixtures:
+ *   resolve: resources/presentation-fixtures/resolve/fixture.yaml
+ *   probe: resources/presentation-fixtures/probe/fixture.yaml
+ *   claims: resources/presentation-fixtures/claims/fixture.yaml
  * steps:
  *   resolve:
  *     type: process.exec

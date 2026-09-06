@@ -1,5 +1,5 @@
 {
-  "root": "/home/pugarhuda/playwork/targets/express",
+  "root": "/tmp/repo-brief.a1b2c3/src",
   "defined_scripts": [
     "lint",
     "lint:fix",
