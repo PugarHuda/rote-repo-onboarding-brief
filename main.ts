@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.7.1
+ *   version: 0.7.3
  *   status: released
  *   kind: atomic
  *   flow_type: parallel

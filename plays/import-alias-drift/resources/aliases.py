@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Do TypeScript and the bundler agree about what `@/thing` means?
 
-Input:  <repo-dir>
+Input:  a repository directory, as one argument
 Output: JSON — every path alias declared in a tsconfig/jsconfig, whether its
         target exists, how many files import it, and whether each resolver that
         has to mirror it (vite, vitest, jest, webpack, rollup) actually does.

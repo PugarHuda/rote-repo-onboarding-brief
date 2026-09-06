@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Which package ecosystems in this repository does the update bot actually watch?
 
-Input:  <repo-dir>
+Input:  a repository directory, as one argument
 Output: JSON — every manifest directory found, grouped by ecosystem, against the
         `updates:` entries in .github/dependabot.yml (and a renovate config if
         present): covered, uncovered, entries pointing at directories with no

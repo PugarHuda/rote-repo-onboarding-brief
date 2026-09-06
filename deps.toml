@@ -50,4 +50,13 @@ required = true
 
 [[tools.install]]
 manager = "system"
-notes = "`mktemp` and `tr` from coreutils, used by the resolver to create the clone directory and strip newlines from parameters. Present on every macOS and Linux install."
+notes = "`mktemp` from coreutils, used by the resolver to create the clone directory. Present on every macOS and Linux install."
+
+[[tools]]
+id = "tr"
+command = "tr"
+required = true
+
+[[tools.install]]
+manager = "system"
+notes = "`tr` from coreutils, used by the resolver to strip newlines from the `repo` and `branch` parameters before they reach git. Present on every macOS and Linux install."

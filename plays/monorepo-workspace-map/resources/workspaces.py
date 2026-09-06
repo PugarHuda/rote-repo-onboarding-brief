@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Map a monorepo's workspace packages and the edges between them.
 
-Input:  <repo-dir>
+Input:  a repository directory, as one argument
 Output: JSON — workspace kind, member packages, internal dependency edges,
         packages nothing depends on, dependency cycles, and version skew
         (the same external dependency pinned differently across packages).

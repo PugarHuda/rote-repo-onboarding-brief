@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cross-check the commands a repo's README claims against what it actually defines.
 
-Input:  <repo-dir>
+Input:  a repository directory, as one argument
 Output: JSON list of command claims, each with a status:
           defined         - the repo really defines this (script/target/recipe exists)
           undefined       - the docs claim it, the repo does not define it   <- doc rot

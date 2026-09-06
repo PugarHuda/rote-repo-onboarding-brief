@@ -3,7 +3,7 @@
 newest version on the public registry, and report the two things a version number
 hides: the publishing account changed, or the license changed.
 
-Input:  <repo-dir> [scope=direct|all] [max_packages=N]
+Input:  a repository directory, as one argument, then [scope=direct|all] [max_packages=N]
 Output: JSON
 
 Network: GET https://registry.npmjs.org/<name>/<version> and /<name>/latest, read-only,

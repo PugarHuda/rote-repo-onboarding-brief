@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Audit a repository's CODEOWNERS file against the files it actually tracks.
 
-Input:  <repo-dir> [verify_owners=true|false]
+Input:  a repository directory, as one argument, then [verify_owners=true|false]
 Output: JSON — which CODEOWNERS file the forge reads, every rule with how many
         tracked files it matches and how many it actually owns after later
         rules override it, the files no rule covers, syntax problems, and
