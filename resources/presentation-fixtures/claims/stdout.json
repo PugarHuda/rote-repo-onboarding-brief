@@ -1,0 +1,113 @@
+{
+  "root": "/home/pugarhuda/playwork/targets/express",
+  "defined_scripts": [
+    "lint",
+    "lint:fix",
+    "test",
+    "test-ci",
+    "test-cov",
+    "test-tap"
+  ],
+  "make_targets": [],
+  "just_recipes": [],
+  "cargo_bins": [],
+  "py_scripts": [],
+  "tox_envs": [],
+  "nox_sessions": [],
+  "task_names": [],
+  "compose_services": [],
+  "toolchain": [
+    {
+      "tool": "node",
+      "declared": ">= 18",
+      "source": "package.json engines.node",
+      "installed": null,
+      "status": "missing"
+    }
+  ],
+  "floor_conflicts": [],
+  "lockfile_conflict": null,
+  "doc_links": {
+    "checked": 1,
+    "broken": [],
+    "broken_count": 0
+  },
+  "env": {
+    "read_count": 0,
+    "documented_sources": [],
+    "undocumented_required": [],
+    "undocumented_with_fallback": [],
+    "documented_never_read": [],
+    "scan_truncated": false
+  },
+  "first_run": [
+    {
+      "step": "install",
+      "command": "npm install",
+      "why": "package.json present, no lockfile \u2014 versions will float"
+    },
+    {
+      "step": "test",
+      "command": "npm test",
+      "why": "package.json scripts.test"
+    }
+  ],
+  "docs_scanned": [
+    "Readme.md"
+  ],
+  "claim_count": 6,
+  "summary": {
+    "unknown": 5,
+    "defined": 1
+  },
+  "claims": [
+    {
+      "command": "npm install express",
+      "source": "Readme.md",
+      "line": 65,
+      "status": "unknown",
+      "evidence": "npm builtin",
+      "tool_present": true
+    },
+    {
+      "command": "npm install -g express-generator@4",
+      "source": "Readme.md",
+      "line": 96,
+      "status": "unknown",
+      "evidence": "npm builtin",
+      "tool_present": true
+    },
+    {
+      "command": "npm install",
+      "source": "Readme.md",
+      "line": 108,
+      "status": "unknown",
+      "evidence": "npm builtin",
+      "tool_present": true
+    },
+    {
+      "command": "npm start",
+      "source": "Readme.md",
+      "line": 114,
+      "status": "unknown",
+      "evidence": "npm builtin",
+      "tool_present": true
+    },
+    {
+      "command": "node examples/content-negotiation",
+      "source": "Readme.md",
+      "line": 146,
+      "status": "unknown",
+      "evidence": "plain command",
+      "tool_present": false
+    },
+    {
+      "command": "npm test",
+      "source": "Readme.md",
+      "line": 174,
+      "status": "defined",
+      "evidence": "package.json scripts.test",
+      "tool_present": true
+    }
+  ]
+}

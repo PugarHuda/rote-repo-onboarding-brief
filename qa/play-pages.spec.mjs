@@ -13,6 +13,7 @@ const PLAYS = [
   { name: "monorepo-workspace-map", manifest: `${REPO}plays/monorepo-workspace-map/main.ts`, inputs: ["Repo", "Branch"] },
   { name: "codeowners-drift", manifest: `${REPO}plays/codeowners-drift/main.ts`, inputs: ["Repo", "Branch", "Verify owners"] },
   { name: "dependency-trust-diff", manifest: `${REPO}plays/dependency-trust-diff/main.ts`, inputs: ["Repo", "Branch", "Scope", "Max packages"] },
+  { name: "dependabot-coverage", manifest: `${REPO}plays/dependabot-coverage/main.ts`, inputs: ["Repo", "Branch"] },
 ];
 
 const versionOf = (file) => readFileSync(file, "utf8").match(/^\s*\*\s+version:\s*([0-9.]+)/m)[1];
@@ -45,5 +46,5 @@ for (const p of PLAYS) {
   console.log(`${bad.length ? "FAIL" : "ok  "} ${p.name}@${expected}${bad.length ? "  -> " + bad.join(", ") : ""}`);
 }
 await browser.close();
-console.log(failures ? `${failures} check(s) failed` : "all four pages render the version this repository declares");
+console.log(failures ? `${failures} check(s) failed` : "all five pages render the version this repository declares");
 process.exit(failures ? 1 : 0);

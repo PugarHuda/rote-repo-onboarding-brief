@@ -1,0 +1,130 @@
+{
+  "root": "/home/pugarhuda/playwork/targets/express",
+  "ecosystems": [
+    "node"
+  ],
+  "manifests_present": [
+    "package.json"
+  ],
+  "lockfiles_present": [],
+  "node": {
+    "name": "express",
+    "description": "Fast, unopinionated, minimalist web framework",
+    "scripts": {
+      "lint": "eslint .",
+      "lint:fix": "eslint . --fix",
+      "test": "mocha --require test/support/env --reporter spec --check-leaks test/ test/acceptance/",
+      "test-ci": "nyc --exclude examples --exclude test --exclude benchmarks --reporter=lcovonly --reporter=text npm test",
+      "test-cov": "nyc --exclude examples --exclude test --exclude benchmarks --reporter=html --reporter=text npm test",
+      "test-tap": "mocha --require test/support/env --reporter tap --check-leaks test/ test/acceptance/"
+    },
+    "engines": {
+      "node": ">= 18"
+    },
+    "package_manager": null,
+    "dependency_count": 44,
+    "notable_deps": [
+      "accepts",
+      "body-parser",
+      "content-disposition",
+      "content-type",
+      "cookie",
+      "cookie-signature",
+      "debug",
+      "depd",
+      "encodeurl",
+      "escape-html",
+      "etag",
+      "finalhandler",
+      "fresh",
+      "http-errors",
+      "merge-descriptors"
+    ]
+  },
+  "readme": {
+    "file": "Readme.md",
+    "lines": 282,
+    "headings": [
+      "## Table of contents",
+      "## Installation",
+      "## Features",
+      "## Docs & Community",
+      "## Quick Start",
+      "## Philosophy",
+      "## Examples",
+      "## Contributing",
+      "### Security Issues",
+      "### Running Tests",
+      "## Current project team members",
+      "### TC (Technical Committee)",
+      "#### TC emeriti members",
+      "### Triagers",
+      "#### Emeritus Triagers",
+      "## License"
+    ],
+    "first_paragraph": "**Fast, unopinionated, minimalist web framework for [Node.js](https://nodejs.org).**"
+  },
+  "ci": [
+    ".github/workflows"
+  ],
+  "ci_workflows": [
+    "ci.yml",
+    "codeql.yml",
+    "legacy.yml",
+    "scorecard.yml"
+  ],
+  "test_dirs": [
+    "test"
+  ],
+  "entry_candidates": [
+    "index.js"
+  ],
+  "structure": [
+    {
+      "path": "examples/",
+      "files": 80
+    },
+    {
+      "path": "lib/",
+      "files": 6
+    },
+    {
+      "path": "test/",
+      "files": 112
+    },
+    {
+      "path": "History.md",
+      "files": null
+    },
+    {
+      "path": "index.js",
+      "files": null
+    },
+    {
+      "path": "LICENSE",
+      "files": null
+    },
+    {
+      "path": "package.json",
+      "files": null
+    },
+    {
+      "path": "Readme.md",
+      "files": null
+    }
+  ],
+  "committed_secret_files": [],
+  "local_only_files": {
+    "count": 0,
+    "sample": [],
+    "secret_shaped": []
+  },
+  "has_dockerfile": false,
+  "has_license": true,
+  "has_contributing": false,
+  "git": {
+    "shallow_clone": true,
+    "last_commit_date": "2026-08-22T15:59:54-05:00",
+    "default_branch": "master"
+  }
+}
