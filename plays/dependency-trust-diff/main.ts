@@ -10,15 +10,43 @@
  * - job-dependency-review
  * - audience-developers
  * - effect-read-only
+ * - dependencies
+ * - lockfile
+ * - npm
+ * - pnpm
+ * - yarn
+ * - pypi
+ * - cargo
+ * - golang
+ * - osv
+ * - vulnerability
+ * - license
+ * - audit
+ * - supply-chain
+ * - typescript
  * discoverability:
  *   tags:
  *   - domain-supply-chain
  *   - job-dependency-review
  *   - audience-developers
  *   - effect-read-only
+ *   - dependencies
+ *   - lockfile
+ *   - npm
+ *   - pnpm
+ *   - yarn
+ *   - pypi
+ *   - cargo
+ *   - golang
+ *   - osv
+ *   - vulnerability
+ *   - license
+ *   - audit
+ *   - supply-chain
+ *   - typescript
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.8.3
+ *   version: 0.8.4
  *   status: released
  *   kind: atomic
  *   flow_type: sequential

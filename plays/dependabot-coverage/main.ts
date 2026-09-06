@@ -10,15 +10,37 @@
  * - job-dependency-review
  * - audience-developers
  * - effect-read-only
+ * - dependabot
+ * - renovate
+ * - dependencies
+ * - coverage
+ * - audit
+ * - github
+ * - npm
+ * - docker
+ * - terraform
+ * - stale
+ * - repo
  * discoverability:
  *   tags:
  *   - domain-supply-chain
  *   - job-dependency-review
  *   - audience-developers
  *   - effect-read-only
+ *   - dependabot
+ *   - renovate
+ *   - dependencies
+ *   - coverage
+ *   - audit
+ *   - github
+ *   - npm
+ *   - docker
+ *   - terraform
+ *   - stale
+ *   - repo
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.3.2
+ *   version: 0.3.3
  *   status: released
  *   kind: atomic
  *   flow_type: sequential

@@ -10,15 +10,39 @@
  * - job-repository-onboarding
  * - audience-developers
  * - effect-read-only
+ * - onboarding
+ * - readme
+ * - documentation
+ * - setup
+ * - toolchain
+ * - audit
+ * - stale-docs
+ * - python
+ * - nodejs
+ * - typescript
+ * - repo
+ * - git
  * discoverability:
  *   tags:
  *   - domain-code-analysis
  *   - job-repository-onboarding
  *   - audience-developers
  *   - effect-read-only
+ *   - onboarding
+ *   - readme
+ *   - documentation
+ *   - setup
+ *   - toolchain
+ *   - audit
+ *   - stale-docs
+ *   - python
+ *   - nodejs
+ *   - typescript
+ *   - repo
+ *   - git
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.7.3
+ *   version: 0.7.4
  *   status: released
  *   kind: atomic
  *   flow_type: parallel

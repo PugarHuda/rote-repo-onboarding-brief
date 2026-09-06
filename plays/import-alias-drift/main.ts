@@ -10,15 +10,45 @@
  * - job-config-review
  * - audience-developers
  * - effect-read-only
+ * - typescript
+ * - tsconfig
+ * - jsconfig
+ * - vite
+ * - vitest
+ * - jest
+ * - webpack
+ * - rollup
+ * - aliases
+ * - imports
+ * - monorepo
+ * - audit
+ * - drift
+ * - bundler
+ * - javascript
  * discoverability:
  *   tags:
  *   - domain-build-tooling
  *   - job-config-review
  *   - audience-developers
  *   - effect-read-only
+ *   - typescript
+ *   - tsconfig
+ *   - jsconfig
+ *   - vite
+ *   - vitest
+ *   - jest
+ *   - webpack
+ *   - rollup
+ *   - aliases
+ *   - imports
+ *   - monorepo
+ *   - audit
+ *   - drift
+ *   - bundler
+ *   - javascript
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.1.2
+ *   version: 0.1.3
  *   status: released
  *   kind: atomic
  *   flow_type: sequential

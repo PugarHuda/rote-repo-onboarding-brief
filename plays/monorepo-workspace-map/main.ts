@@ -10,15 +10,41 @@
  * - job-repository-onboarding
  * - audience-developers
  * - effect-read-only
+ * - monorepo
+ * - workspace
+ * - workspaces
+ * - pnpm
+ * - npm
+ * - yarn
+ * - cargo
+ * - turborepo
+ * - nx
+ * - dependency-graph
+ * - audit
+ * - typescript
+ * - repo
  * discoverability:
  *   tags:
  *   - domain-code-analysis
  *   - job-repository-onboarding
  *   - audience-developers
  *   - effect-read-only
+ *   - monorepo
+ *   - workspace
+ *   - workspaces
+ *   - pnpm
+ *   - npm
+ *   - yarn
+ *   - cargo
+ *   - turborepo
+ *   - nx
+ *   - dependency-graph
+ *   - audit
+ *   - typescript
+ *   - repo
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.3.4
+ *   version: 0.3.5
  *   status: released
  *   kind: atomic
  *   flow_type: sequential

@@ -10,15 +10,37 @@
  * - job-code-review
  * - audience-developers
  * - effect-read-only
+ * - codeowners
+ * - audit
+ * - code-review
+ * - reviewers
+ * - github
+ * - gitlab
+ * - ownership
+ * - stale
+ * - drift
+ * - repo
+ * - git
  * discoverability:
  *   tags:
  *   - domain-code-analysis
  *   - job-code-review
  *   - audience-developers
  *   - effect-read-only
+ *   - codeowners
+ *   - audit
+ *   - code-review
+ *   - reviewers
+ *   - github
+ *   - gitlab
+ *   - ownership
+ *   - stale
+ *   - drift
+ *   - repo
+ *   - git
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.3.4
+ *   version: 0.3.5
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
