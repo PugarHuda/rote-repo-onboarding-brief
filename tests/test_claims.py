@@ -76,6 +76,42 @@ def test_prompts_and_non_shell_fences_are_handled():
         assert "npm run should_be_ignored" not in s, s   # python fence ignored
 
 
+def test_cargo_go_python_docker_and_task_claims():
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        (r / "Cargo.toml").write_text('[package]\nname = "app"\n[[bin]]\nname = "tool"\n')
+        (r / "go.mod").write_text("module x\n")
+        (r / "cmd" / "server").mkdir(parents=True)
+        (r / "pyproject.toml").write_text('[project]\nname = "p"\n[project.scripts]\nserve = "p:main"\n')
+        (r / "tox.ini").write_text("[tox]\nenvlist = py312, lint\n")
+        (r / "noxfile.py").write_text("import nox\n@nox.session\ndef tests(session):\n    pass\n")
+        (r / "pkg").mkdir(); (r / "pkg" / "__init__.py").write_text("")
+        (r / "docker-compose.yml").write_text("services:\n  web:\n    image: x\n  db:\n    image: y\n")
+        (r / "Taskfile.yml").write_text("version: '3'\ntasks:\n  lint:\n    cmds: [echo]\n")
+        (r / "Dockerfile").write_text("FROM scratch\n")
+        (r / "package.json").write_text(json.dumps({"devDependencies": {"vitest": "^1"}}))
+        (r / "README.md").write_text("```sh\n" + "\n".join([
+            "cargo run --bin tool", "cargo run --bin nope", "cargo test",
+            "go run ./cmd/server", "go run ./cmd/gone",
+            "poetry run serve", "poetry run missing", "tox -e lint", "tox -e py99",
+            "nox -s tests", "nox -s bench", "python -m pkg", "python -m nothere",
+            "docker compose up web", "docker compose up cache", "docker build -t x .",
+            "task lint", "task deploy", "npx vitest", "npx some-random-cli",
+        ]) + "\n```\n")
+        s = by_cmd(claims(r))
+        assert s["cargo run --bin tool"] == "defined" or s["cargo run --bin tool"] == "tool_missing", s
+        assert s["cargo run --bin nope"] == "undefined"
+        assert s["go run ./cmd/gone"] == "undefined" and s["go run ./cmd/server"] in ("defined", "tool_missing")
+        assert s["poetry run serve"] in ("defined", "tool_missing") and s["poetry run missing"] == "undefined"
+        assert s["tox -e lint"] in ("defined", "tool_missing") and s["tox -e py99"] == "undefined"
+        assert s["nox -s tests"] in ("defined", "tool_missing") and s["nox -s bench"] == "undefined"
+        assert s["python -m pkg"] in ("defined", "tool_missing") and s["python -m nothere"] == "undefined"
+        assert s["docker compose up web"] in ("defined", "tool_missing") and s["docker compose up cache"] == "undefined"
+        assert s["docker build -t x ."] in ("defined", "tool_missing")
+        assert s["task lint"] in ("defined", "tool_missing") and s["task deploy"] == "undefined"
+        assert s["npx vitest"] in ("defined", "tool_missing") and s["npx some-random-cli"] == "unknown"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

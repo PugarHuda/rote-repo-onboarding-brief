@@ -127,6 +127,61 @@ def member_info(d):
     return None
 
 
+def _semver(v):
+    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", str(v or ""))
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def range_satisfied(spec, version):
+    """Does `version` satisfy a simple npm/Cargo range? Returns True, False, or None
+    when the range is a workspace link, a catalog, a URL, or a shape not modelled here."""
+    spec = str(spec or "").strip()
+    if not spec or spec in ("*", "latest") or spec.startswith(("workspace:", "catalog:", "file:", "link:", "npm:", "git", "http")):
+        return None
+    have = _semver(version)
+    if have is None:
+        return None
+    if "||" in spec or " - " in spec or spec.startswith(("<", ">")) or " " in spec:
+        return None
+    op, rest = "", spec
+    if spec[0] in "^~=":
+        op, rest = spec[0], spec[1:]
+    want = _semver(rest)
+    if want is None:
+        # Cargo-style "1.2" or npm "1" -> caret on the given components
+        m = re.match(r"^(\d+)(?:\.(\d+))?$", rest)
+        if not m:
+            return None
+        want = (int(m.group(1)), int(m.group(2) or 0), 0)
+        op = op or "^"
+    if op == "=" or op == "":
+        return have == want if re.match(r"^\d+\.\d+\.\d+$", rest) else have[:2] == want[:2] if have[0] == want[0] else False
+    if op == "~":
+        return have[:2] == want[:2] and have >= want
+    if op == "^":
+        if want[0] > 0:
+            return have[0] == want[0] and have >= want
+        if want[1] > 0:
+            return have[:2] == want[:2] and have >= want
+        return have == want
+    return None
+
+
+def unlisted_packages(root, member_dirs, max_depth=3):
+    """Directories holding a package.json (or Cargo.toml) that no workspace glob covers."""
+    listed = {d.resolve() for d in member_dirs}
+    found = []
+    for manifest in ("package.json", "Cargo.toml"):
+        for f in root.rglob(manifest):
+            d = f.parent
+            rel = d.relative_to(root)
+            if d == root or any(part in IGNORE for part in rel.parts) or len(rel.parts) > max_depth:
+                continue
+            if d.resolve() not in listed:
+                found.append(rel.as_posix())
+    return sorted(set(found))
+
+
 def find_cycles(edges, names):
     """Every dependency cycle among workspace members."""
     graph = {n: [] for n in names}
@@ -178,11 +233,18 @@ def main():
         members.append({**info, "path": rel})
 
     names = {m["name"] for m in members}
-    edges, external = [], {}
+    versions = {m["name"]: m.get("version") for m in members}
+    edges, external, mismatches = [], {}, []
     for m in members:
         for dep, ver in (m["deps"] or {}).items():
             if dep in names:
                 edges.append([m["name"], dep])
+                ok = range_satisfied(ver, versions.get(dep))
+                if ok is False:
+                    # The workspace copy does not satisfy the range, so the package
+                    # manager resolves it from the registry instead of linking it.
+                    mismatches.append({"package": m["name"], "depends_on": dep,
+                                       "wants": str(ver), "workspace_has": str(versions.get(dep))})
             else:
                 external.setdefault(dep, {})[m["name"]] = ver
 
@@ -214,6 +276,8 @@ def main():
         "leaf_packages": sorted(n for n in names if n not in depended_on),
         "cycles": find_cycles(edges, sorted(names))[:50],
         "version_skew": skew[:25],
+        "internal_version_mismatch": mismatches[:50],
+        "unlisted_packages": unlisted_packages(root, dirs)[:50],
         "skipped": skipped[:50],
     }, indent=2))
     return 0

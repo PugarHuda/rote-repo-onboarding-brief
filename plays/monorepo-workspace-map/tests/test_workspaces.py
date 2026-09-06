@@ -88,6 +88,22 @@ def test_member_without_manifest_is_reported_not_silently_dropped():
         assert any(s["path"].endswith("empty") for s in d["skipped"]), d["skipped"]
 
 
+def test_internal_version_mismatch_and_unlisted_packages():
+    with tempfile.TemporaryDirectory() as t:
+        r = Path(t)
+        (r / "package.json").write_text(json.dumps({"name": "root", "workspaces": ["packages/*"]}))
+        mk(r, "packages/core", {"name": "@acme/core", "version": "2.0.0"})
+        mk(r, "packages/app", {"name": "@acme/app", "version": "1.0.0",
+                                "dependencies": {"@acme/core": "^1.0.0"}})       # workspace has 2.0.0 -> registry fallback
+        mk(r, "packages/ok", {"name": "@acme/ok", "version": "1.0.0",
+                               "dependencies": {"@acme/core": "workspace:*"}})   # link, never a mismatch
+        mk(r, "tools/forgotten", {"name": "@acme/forgotten", "version": "0.1.0"})  # not covered by any glob
+        d = ws(r)
+        assert d["internal_version_mismatch"] == [
+            {"package": "@acme/app", "depends_on": "@acme/core", "wants": "^1.0.0", "workspace_has": "2.0.0"}], d
+        assert d["unlisted_packages"] == ["tools/forgotten"], d
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

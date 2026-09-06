@@ -165,3 +165,22 @@ pnpm, yarn and bun lockfiles are named as unsupported rather than silently skipp
 
 Its only network access is anonymous GETs to `registry.npmjs.org`. Source under
 `plays/dependency-trust-diff/`; the self-check runs fully offline against fixtures.
+
+---
+
+# How these differ from the Plays next to them
+
+The registry has ~1,000 Plays. These are the closest neighbours and the one thing each of ours
+does that they do not.
+
+| Ours | Closest neighbours | What only ours does |
+|---|---|---|
+| repo-onboarding-brief | `chaitanyagidwani/repo-onboarding-brief`, `documentation-contract-referee`, `readme-rot`, `first-run-reality`, `stranger-test`, `clone-ready` | Resolves each README command against **this machine's PATH** as well as the manifests, so "stale docs" (`NOT DEFINED`) and "you lack the tool" (`tool missing`) are separate verdicts; covers 12 ecosystems (npm/pnpm/yarn/bun scripts, Make, just, Cargo bins, `go run` paths, pyproject scripts, tox, nox, Taskfile, compose services, Dockerfile, `npx` deps); ends with an explicit **WHAT IS UNCLEAR** list |
+| monorepo-workspace-map | `dep-skew` (version skew only), `repo-dependency-graph` (module imports, not packages) | Package-level boundaries with **cycles**, **version skew**, **internal version mismatch** (a sibling range the workspace copy cannot satisfy, so the manager silently pulls from the registry) and **unlisted packages** no glob covers, across npm/pnpm/Cargo/go.work/uv/lerna |
+| codeowners-drift | none audit CODEOWNERS; `reviewer-finder` and `bus-factor` answer who *should* own code | Rules that match nothing, rules **shadowed** by a later rule (last match wins), files with no owner, GitHub *and* GitLab semantics, optional `verify_owners` against api.github.com |
+| dependency-trust-diff | `package-abandonment-signal`, `upstream-pulse`, `pkg-xray` (health of the latest version), `npm-scripts-audit` (hooks already installed) | Diffs the version you **pinned** against `latest` on the trust axes a version bump hides: publisher, maintainers, license, **install hook added**, **provenance dropped** |
+
+Shared rules that no neighbour states as plainly: read-only, stdlib only, nothing the target
+repository ships is ever executed, a fetch failure is never reported as "fine", and every analyzer
+stays under rote's 64 KB stdout capture so a large input degrades to a counted omission instead of
+a silent "could not be audited".

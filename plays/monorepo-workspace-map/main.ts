@@ -3,7 +3,7 @@
  * @rote-frontmatter
  * ---
  * name: monorepo-workspace-map
- * description: Map a monorepo's package boundaries — which workspace packages exist, which depend on which, which are leaves nobody imports, and which dependency cycles exist. Also reports version skew, where the same external dependency is pinned differently in different packages, which is the papercut that builds fine and then breaks once at runtime. Understands npm and yarn workspaces, pnpm workspaces, Cargo workspaces, go.work, uv workspaces, and lerna. If the repository is not a monorepo it says so and lists every workspace definition it looked for, rather than returning an empty map. Read-only, no credentials, no adapters. A local path is inspected in place, a URL is shallow-cloned to a temp directory, and nothing the repository ships is ever executed.
+ * description: Map a monorepo's package boundaries — which workspace packages exist, which depend on which, which are leaves nobody imports, and which dependency cycles exist. Also reports version skew, where the same external dependency is pinned differently in different packages, which is the papercut that builds fine and then breaks once at runtime; internal version mismatch, where a package asks for a range of a sibling that the workspace copy does not satisfy, so the package manager silently installs it from the registry instead of linking it; and unlisted packages, directories holding a manifest that no workspace glob covers. Understands npm and yarn workspaces, pnpm workspaces, Cargo workspaces, go.work, uv workspaces, and lerna. If the repository is not a monorepo it says so and lists every workspace definition it looked for, rather than returning an empty map. Read-only, no credentials, no adapters. A local path is inspected in place, a URL is shallow-cloned to a temp directory, and nothing the repository ships is ever executed.
  * source: https://github.com/PugarHuda/rote-repo-onboarding-brief
  * tags:
  * - domain-code-analysis
@@ -18,7 +18,7 @@
  *   - effect-read-only
  * metadata:
  *   rote_version: 0.79.0
- *   version: 0.1.2
+ *   version: 0.2.0
  *   status: released
  *   kind: atomic
  *   flow_type: sequential
@@ -198,6 +198,27 @@ if (!data) {
   }
   lines.push("");
 
+  const mism = (data["internal_version_mismatch"] as Dict[]) ?? [];
+  lines.push("INTERNAL VERSION MISMATCH");
+  if (mism.length) {
+    lines.push("  A package asks for a range of a sibling that the workspace copy does not satisfy,");
+    lines.push("  so the package manager resolves it from the registry instead of linking it:");
+    for (const m of mism) {
+      lines.push(`  ${S(m["package"])}  wants ${S(m["depends_on"])}@${S(m["wants"])}  ·  workspace has ${S(m["workspace_has"])}`);
+    }
+  } else {
+    lines.push("  None. Every internal range is satisfied by the workspace copy (workspace:/catalog: links are not ranges).");
+  }
+  lines.push("");
+
+  const unlisted = (data["unlisted_packages"] as string[]) ?? [];
+  if (unlisted.length) {
+    lines.push("UNLISTED PACKAGES");
+    lines.push("  A manifest lives here but no workspace glob covers it, so it is neither linked nor built:");
+    for (const u of unlisted) lines.push(`  ${u}`);
+    lines.push("");
+  }
+
   if (leaves.length) {
     lines.push("LEAF PACKAGES");
     lines.push("  Nothing else in this workspace depends on these, so they are apps,");
@@ -212,10 +233,10 @@ if (!data) {
     lines.push("");
   }
 
-  const problems = cycles.length + skew.length;
+  const problems = cycles.length + skew.length + mism.length;
   const verdict = problems === 0
-    ? `${members.length} packages, clean boundaries`
-    : `${members.length} packages · ${cycles.length} cycle(s) · ${skew.length} skewed dependency(ies)`;
+    ? `${S(data["member_count"])} packages, clean boundaries`
+    : `${S(data["member_count"])} packages · ${cycles.length} cycle(s) · ${skew.length} skewed dependency(ies) · ${mism.length} internal mismatch(es)`;
 
   out.human(lines.join("\n"));
   out.summary(verdict);
@@ -230,6 +251,8 @@ if (!data) {
     cycles,
     version_skew: skew,
     leaf_packages: leaves,
+    internal_version_mismatch: mism,
+    unlisted_packages: unlisted,
     skipped,
   });
 }
